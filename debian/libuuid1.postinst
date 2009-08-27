@@ -24,11 +24,27 @@ if test -z "$LAST_SYSTEM_GID"; then
     LAST_SYSTEM_GID=999
 fi
 
+MY_UID=
+for i in `seq "$FIRST_SYSTEM_UID" "$LAST_SYSTEM_UID"` ; do
+	if ! grep -q "[^:]\+:[^:]*:$i" /etc/passwd ; then
+		MY_UID="$i"
+		break
+	fi
+done
+
+MY_GID=
+for i in `seq "$FIRST_SYSTEM_GID" "$LAST_SYSTEM_GID"` ; do
+	if ! grep -q "[^:]\+:[^:]*:$i" /etc/group ; then
+		MY_GID="$i"
+		break
+	fi
+done
+
 if ! getent group | grep -q libuuid; then
-  groupadd -f -K GID_MIN=$FIRST_SYSTEM_GID -K GID_MAX=$LAST_SYSTEM_GID libuuid
+   groupadd -f libuuid -g "$MY_GID"
 fi
 if ! getent passwd | grep -q libuuid; then
-   useradd -d /var/lib/libuuid -K UID_MIN=$FIRST_SYSTEM_UID -K UID_MAX=$LAST_SYSTEM_UID -g libuuid libuuid
+   useradd -d /var/lib/libuuid -u "$MY_UID" -g libuuid libuuid
 fi
 
 mkdir -p /var/lib/libuuid

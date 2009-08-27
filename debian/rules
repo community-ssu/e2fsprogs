@@ -10,6 +10,8 @@
 # be paranoid
 export LC_ALL=C
 
+include /usr/share/quilt/quilt.make
+
 # These are used for cross-compiling and for saving the configure script
 # from having to guess our platform (since we know it already)
 DEB_HOST_ARCH   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
@@ -115,23 +117,24 @@ endif
 BF_CCOPTS = -Os -fomit-frame-pointer
 
 COMMON_CONF_FLAGS =  \
-                --enable-elf-shlibs --infodir=/usr/share/info --enable-fsck
+                --enable-elf-shlibs --infodir=/usr/share/info --enable-fsck \
+		--disable-nls
 
 STD_CONF_FLAGS = --with-ccopts="${CCOPTS}" --enable-compression
 
 BF_CONF_FLAGS = --with-ccopts="${CCOPTS} ${BF_CCOPTS}" \
-	--disable-nls --disable-imager --disable-testio-debug \
+	--disable-imager --disable-testio-debug \
 	--disable-uuidd --disable-tls \
 	--disable-debugfs  --disable-e2initrd-helper
 
 STATIC_CONF_FLAGS = --with-ccopts="${CCOPTS}" \
-	--disable-nls --disable-imager \
+	--disable-imager \
 	--disable-uuidd --disable-tls \
 	--disable-e2initrd-helper \
 	--with-ccopts=-fno-stack-protector
 
 MIPS_NOPIC_CONF_FLAGS = --with-ccopts="${CCOPTS}" \
-	--disable-nls --disable-imager \
+	--disable-imager \
 	--disable-uuidd --disable-tls \
         --disable-resizer # --disable-debugfs
 
@@ -211,7 +214,7 @@ endif
 	mkdir -p ${STAMPSDIR}
 	touch ${CFGSTATICSTAMP}
 
-build: build-std build-bf $(BUILD_STATIC)
+build: patch build-std build-bf $(BUILD_STATIC)
 
 build-std: ${BUILDSTDSTAMP}
 ${BUILDSTDSTAMP}: ${CFGSTDSTAMP}
@@ -253,7 +256,7 @@ ${BUILDSTATICSTAMP}: ${CFGSTATICSTAMP}
 	$(MAKE) -C ${staticbuilddir}/e2fsck all e2fsck.static
 	touch ${BUILDSTATICSTAMP}
 
-clean:
+clean: unpatch
 	dh_testdir
 	rm -rf ${STAMPSDIR}
 	[ ! -f ${stdbuilddir}/Makefile ] || $(MAKE) -C ${stdbuilddir} distclean
@@ -424,9 +427,9 @@ binary-arch: install install-udeb
 
 	dh_fixperms
 ifneq ($(ismips),)
-	dh_strip -k -Xlib64ext2fs-nopic.a
+	debian/dh_strip.ubuntu -k -Xlib64ext2fs-nopic.a
 else
-	dh_strip -k
+	debian/dh_strip.ubuntu -k
 endif
 
 	# debug package stuff

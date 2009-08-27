@@ -1,3 +1,67 @@
+e2fsprogs (1.41.3-1maemo5+0m5) unstable; urgency=low
+
+  * This entry has been added by BIFH queue processor
+    Suffix +0m5 added to package revision
+
+ -- Yauheni Kaliuta <yauheni.kaliuta@nokia.com>  Thu, 27 Aug 2009 20:30:51 +0300
+
+e2fsprogs (1.41.3-1maemo5) unstable; urgency=low
+
+  * Integrating Alexander's version.
+  * Caching redone. Fixes: NB#121684.
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Wed, 26 Aug 2009 11:15:38 +0300
+
+e2fsprogs (1.41.3-1maemo5~ash0) unstable; urgency=low
+
+  * Caching redone. Fixes: NB#121684.
+
+ -- Alexander Shishkin <ext-alexander.shishkin@nokia.com>  Fri, 21 Aug 2009 15:57:38 +0300
+
+e2fsprogs (1.41.3-1maemo4+0m5) unstable; urgency=low
+
+  * This entry has been added by BIFH queue processor
+    Suffix +0m5 added to package revision
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Tue, 23 Jun 2009 09:38:21 +0300
+
+e2fsprogs (1.41.3-1maemo4) unstable; urgency=low
+
+  * Fixes: NB#118292 Restored -dbg package building by introducing
+    dh_strip from Ubuntu 8.04.
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Mon, 22 Jun 2009 13:36:26 +0300
+
+e2fsprogs (1.41.3-1maemo3+0m5) unstable; urgency=low
+
+  * This entry has been added by BIFH queue processor
+    Suffix +0m5 added to package revision
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Fri, 22 May 2009 18:38:26 +0300
+
+e2fsprogs (1.41.3-1maemo3) unstable; urgency=low
+
+  * Applied two experimental patches to speed-up ext2/3 filesystem creation.
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Fri, 22 May 2009 18:27:23 +0300
+
+e2fsprogs (1.41.3-1maemo2) unstable; urgency=low
+
+  * configure with --disable-nls (Fixes: NB#94925)
+
+ -- Jussi Hakala <ext-jussi.hakala@nokia.com>  Wed, 07 Jan 2009 13:57:23 +0200
+
+e2fsprogs (1.41.3-1maemo1) unstable; urgency=low
+
+  * Remove build dependency & configuration options to dietlibc
+  * Removed broken dbg packages
+  * Removed unsupported options in groupadd/useradd in libuuid postinst
+    and replaced them with selecting first unused ones
+  * Make libuuid1 depend on base-passwd to make sure it's there
+  * Changed maintainer to integration@maemo.org
+
+ -- Jussi hakala <ext-jussi.hakala@nokia.com>  Thu, 04 Dec 2008 16:01:19 +0200
+
 e2fsprogs (1.41.3-1) unstable; urgency=low
 
   * New upstream release
