@@ -1,3 +1,16 @@
+e2fsprogs (1.41.3-1maemo6+0m5) unstable; urgency=low
+
+  * This entry has been added by BIFH queue processor
+    Suffix +0m5 added to package revision
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Wed, 25 Nov 2009 16:32:26 +0200
+
+e2fsprogs (1.41.3-1maemo6) unstable; urgency=low
+
+  * Fixes: NB#148309 - legal bug
+
+ -- Juha Kallioinen <juha.kallioinen@nokia.com>  Wed, 25 Nov 2009 15:20:01 +0200
+
 e2fsprogs (1.41.3-1maemo5+0m5) unstable; urgency=low
 
   * This entry has been added by BIFH queue processor
