@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include "resize2fs.h"
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
@@ -18,8 +19,10 @@
 
 extern char *program_name;
 
+#define MAX_32_NUM ((((unsigned long long) 1) << 32) - 1)
+
 errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
-			   blk_t *new_size, int flags EXT2FS_ATTR((unused)))
+			   blk64_t *new_size, int flags EXT2FS_ATTR((unused)))
 {
 #ifdef __linux__
 	struct ext2_new_group_input input;
@@ -37,9 +40,8 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 	printf(_("Filesystem at %s is mounted on %s; "
 		 "on-line resizing required\n"), fs->device_name, mtpt);
 
-	if (*new_size < sb->s_blocks_count) {
-		printf(_("On-line shrinking from %u to %u not supported.\n"),
-		       sb->s_blocks_count, *new_size);
+	if (*new_size < ext2fs_blocks_count(sb)) {
+		com_err(program_name, 0, _("On-line shrinking not supported"));
 		exit(1);
 	}
 
@@ -48,11 +50,11 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 	 * the on-line resizing inode must be present.
 	 */
 	new_desc_blocks = ext2fs_div_ceil(
-		ext2fs_div_ceil(*new_size -
-				fs->super->s_first_data_block,
-				EXT2_BLOCKS_PER_GROUP(fs->super)),
+		ext2fs_div64_ceil(*new_size -
+				  fs->super->s_first_data_block,
+				  EXT2_BLOCKS_PER_GROUP(fs->super)),
 		EXT2_DESC_PER_BLOCK(fs->super));
-	printf("old desc_blocks = %lu, new_desc_blocks = %lu\n",
+	printf("old_desc_blocks = %lu, new_desc_blocks = %lu\n",
 	       fs->desc_blocks, new_desc_blocks);
 	if (!(fs->super->s_feature_compat &
 	      EXT2_FEATURE_COMPAT_RESIZE_INODE) &&
@@ -69,7 +71,45 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 		exit(1);
 	}
 
-	size=sb->s_blocks_count;
+	if (ioctl(fd, EXT4_IOC_RESIZE_FS, new_size)) {
+		/*
+		 * If kernel does not support EXT4_IOC_RESIZE_FS, use the
+		 * old online resize. Note that the old approach does not
+		 * handle >32 bit file systems
+		 *
+		 * Sigh, if we are running a 32-bit binary on a 64-bit
+		 * kernel (which happens all the time on the MIPS
+		 * architecture in Debian, but can happen on other CPU
+		 * architectures as well) we will get EINVAL returned
+		 * when an ioctl doesn't exist, at least up to Linux
+		 * 3.1.  See compat_sys_ioctl() in fs/compat_ioctl.c
+		 * in the kernel sources.  This is probably a kernel
+		 * bug, but work around it here.
+		 */
+		if ((errno != ENOTTY) && (errno != EINVAL)) {
+			if (errno == EPERM)
+				com_err(program_name, 0,
+				_("Permission denied to resize filesystem"));
+			else
+				com_err(program_name, errno,
+				_("While checking for on-line resizing "
+				  "support"));
+			exit(1);
+		}
+	} else {
+		close(fd);
+		return 0;
+	}
+
+	if ((ext2fs_blocks_count(sb) > MAX_32_NUM) ||
+	    (*new_size > MAX_32_NUM)) {
+		com_err(program_name, 0,
+			_("Kernel does not support resizing a file system "
+			  "this large"));
+		exit(1);
+	}
+	size = ext2fs_blocks_count(sb);
+
 	if (ioctl(fd, EXT2_IOC_GROUP_EXTEND, &size)) {
 		if (errno == EPERM)
 			com_err(program_name, 0,
@@ -83,7 +123,8 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 		exit(1);
 	}
 
-	percent = (sb->s_r_blocks_count * 100.0) / sb->s_blocks_count;
+	percent = (ext2fs_r_blocks_count(sb) * 100.0) /
+		ext2fs_blocks_count(sb);
 
 	retval = ext2fs_read_bitmaps(fs);
 	if (retval)
@@ -104,11 +145,11 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 	 * but at least it allows on-line resizing to function.
 	 */
 	new_fs->super->s_feature_incompat &= ~EXT4_FEATURE_INCOMPAT_FLEX_BG;
-	retval = adjust_fs_info(new_fs, fs, *new_size);
+	retval = adjust_fs_info(new_fs, fs, 0, *new_size);
 	if (retval)
 		return retval;
 
-	printf(_("Performing an on-line resize of %s to %u (%dk) blocks.\n"),
+	printf(_("Performing an on-line resize of %s to %llu (%dk) blocks.\n"),
 	       fs->device_name, *new_size, fs->blocksize / 1024);
 
 	size = fs->group_desc_count * sb->s_blocks_per_group +
@@ -132,15 +173,10 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 				new_fs->super->s_reserved_gdt_blocks;
 
 		input.group = i;
-		input.block_bitmap = new_fs->group_desc[i].bg_block_bitmap;
-		input.inode_bitmap = new_fs->group_desc[i].bg_inode_bitmap;
-		input.inode_table = new_fs->group_desc[i].bg_inode_table;
-		input.blocks_count = sb->s_blocks_per_group;
-		if (i == new_fs->group_desc_count-1) {
-			input.blocks_count = new_fs->super->s_blocks_count -
-				sb->s_first_data_block -
-				(i * sb->s_blocks_per_group);
-		}
+		input.block_bitmap = ext2fs_block_bitmap_loc(new_fs, i);
+		input.inode_bitmap = ext2fs_inode_bitmap_loc(new_fs, i);
+		input.inode_table = ext2fs_inode_table_loc(new_fs, i);
+		input.blocks_count = ext2fs_group_blocks_count(new_fs, i);
 		input.reserved_blocks = (blk_t) (percent * input.blocks_count
 						 / 100.0);
 
@@ -154,9 +190,9 @@ errcode_t online_resize_fs(ext2_filsys fs, const char *mtpt,
 		printf("new group will reserve %d blocks\n",
 		       input.reserved_blocks);
 		printf("new group has %d free blocks\n",
-		       new_fs->group_desc[i].bg_free_blocks_count);
+		       ext2fs_bg_free_blocks_count(new_fs, i),
 		printf("new group has %d free inodes (%d blocks)\n",
-		       new_fs->group_desc[i].bg_free_inodes_count,
+		       ext2fs_bg_free_inodes_count(new_fs, i),
 		       new_fs->inode_blocks_per_group);
 		printf("Adding group #%d\n", input.group);
 #endif

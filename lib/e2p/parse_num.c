@@ -3,15 +3,18 @@
  *
  * Copyright (C) 2004,2005  Theodore Ts'o <tytso@mit.edu>
  *
- * This file can be redistributed under the terms of the GNU Library General
- * Public License
+ * %Begin-Header%
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
+ * %End-Header%
  */
 
+#include "config.h"
 #include "e2p.h"
 
 #include <stdlib.h>
 
-unsigned long parse_num_blocks(const char *arg, int log_block_size)
+unsigned long long parse_num_blocks2(const char *arg, int log_block_size)
 {
 	char *p;
 	unsigned long long num;
@@ -24,10 +27,13 @@ unsigned long parse_num_blocks(const char *arg, int log_block_size)
 	switch (*p) {		/* Using fall-through logic */
 	case 'T': case 't':
 		num <<= 10;
+		/* fallthrough */
 	case 'G': case 'g':
 		num <<= 10;
+		/* fallthrough */
 	case 'M': case 'm':
 		num <<= 10;
+		/* fallthrough */
 	case 'K': case 'k':
 		num >>= log_block_size;
 		break;
@@ -40,6 +46,11 @@ unsigned long parse_num_blocks(const char *arg, int log_block_size)
 		return 0;
 	}
 	return num;
+}
+
+unsigned long parse_num_blocks(const char *arg, int log_block_size)
+{
+	return parse_num_blocks2(arg, log_block_size);
 }
 
 #ifdef DEBUG

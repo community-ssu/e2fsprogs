@@ -13,6 +13,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -208,8 +209,8 @@ static int check_for_modules(const char *fs_name)
 #ifdef __linux__
 	struct utsname	uts;
 	FILE		*f;
-	char		buf[1024], *cp, *t;
-	int		i;
+	char		buf[1024], *cp;
+	int		namesz;
 
 	if (uname(&uts))
 		return (0);
@@ -218,6 +219,9 @@ static int check_for_modules(const char *fs_name)
 	f = fopen(buf, "r");
 	if (!f)
 		return (0);
+
+	namesz = strlen(fs_name);
+
 	while (!feof(f)) {
 		if (!fgets(buf, sizeof(buf), f))
 			break;
@@ -227,13 +231,11 @@ static int check_for_modules(const char *fs_name)
 			continue;
 		if ((cp = strrchr(buf, '/')) != NULL)
 			cp++;
-		i = strlen(cp);
-		if (i > 3) {
-			t = cp + i - 3;
-			if (!strcmp(t, ".ko"))
-				*t = 0;
-		}
-		if (!strcmp(cp, fs_name)) {
+		else
+			cp = buf;
+		if (!strncmp(cp, fs_name, namesz) &&
+		    (!strcmp(cp + namesz, ".ko") ||
+		     !strcmp(cp + namesz, ".ko.gz"))) {
 			fclose(f);
 			return (1);
 		}
@@ -241,6 +243,55 @@ static int check_for_modules(const char *fs_name)
 	fclose(f);
 #endif
 	return (0);
+}
+
+static int linux_version_code()
+{
+#ifdef __linux__
+	struct utsname	ut;
+	static int	version_code = -1;
+	int		major, minor, rev;
+	char		*endptr;
+	const char 	*cp;
+
+	if (version_code > 0)
+		return version_code;
+
+	if (uname(&ut))
+		return 0;
+	cp = ut.release;
+
+	major = strtol(cp, &endptr, 10);
+	if (cp == endptr || *endptr != '.')
+		return 0;
+	cp = endptr + 1;
+	minor = strtol(cp, &endptr, 10);
+	if (cp == endptr || *endptr != '.')
+		return 0;
+	cp = endptr + 1;
+	rev = strtol(cp, &endptr, 10);
+	if (cp == endptr)
+		return 0;
+	version_code = (((major * 256) + minor) * 256) + rev;
+	return version_code;
+#else
+	return 0;
+#endif
+}
+
+#define EXT4_SUPPORTS_EXT2 (2 * 65536 + 6*256 + 29)
+
+static int system_supports_ext2(void)
+{
+	static time_t	last_check = 0;
+	static int	ret = -1;
+	time_t		now = time(0);
+
+	if (ret != -1 || (now - last_check) < 5)
+		return ret;
+	last_check = now;
+	ret = (fs_proc_check("ext2") || check_for_modules("ext2"));
+	return ret;
 }
 
 static int system_supports_ext4(void)
@@ -281,10 +332,17 @@ static int probe_ext4dev(struct blkid_probe *probe,
 	    EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)
 		return -BLKID_ERR_PARAM;
 
-	/* ext4dev requires a journal */
+	/* 
+	 * If the filesystem does not have a journal and ext2 and ext4
+	 * is not present, then force this to be detected as an
+	 * ext4dev filesystem.
+	 */
 	if (!(blkid_le32(es->s_feature_compat) &
-	      EXT3_FEATURE_COMPAT_HAS_JOURNAL))
-		return -BLKID_ERR_PARAM;
+	      EXT3_FEATURE_COMPAT_HAS_JOURNAL) &&
+	    !system_supports_ext2() && !system_supports_ext4() &&
+	    system_supports_ext4dev() &&
+	    linux_version_code() >= EXT4_SUPPORTS_EXT2)
+		goto force_ext4dev;
 
 	/*
 	 * If the filesystem is marked as OK for use by in-development
@@ -302,6 +360,7 @@ static int probe_ext4dev(struct blkid_probe *probe,
 	} else
 		return -BLKID_ERR_PARAM;
 
+force_ext4dev:
     	get_ext2_info(probe->dev, id, buf);
 	return 0;
 }
@@ -317,10 +376,16 @@ static int probe_ext4(struct blkid_probe *probe, struct blkid_magic *id,
 	    EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)
 		return -BLKID_ERR_PARAM;
 
-	/* ext4 requires journal */
+	/* 
+	 * If the filesystem does not have a journal and ext2 is not
+	 * present, then force this to be detected as an ext2
+	 * filesystem.
+	 */
 	if (!(blkid_le32(es->s_feature_compat) &
-	      EXT3_FEATURE_COMPAT_HAS_JOURNAL))
-		return -BLKID_ERR_PARAM;
+	      EXT3_FEATURE_COMPAT_HAS_JOURNAL) &&
+	    !system_supports_ext2() && system_supports_ext4() &&
+	    linux_version_code() >= EXT4_SUPPORTS_EXT2)
+		goto force_ext4;
 
 	/* Ext4 has at least one feature which ext3 doesn't understand */
 	if (!(blkid_le32(es->s_feature_ro_compat) &
@@ -329,6 +394,7 @@ static int probe_ext4(struct blkid_probe *probe, struct blkid_magic *id,
 	      EXT3_FEATURE_INCOMPAT_UNSUPPORTED))
 		return -BLKID_ERR_PARAM;
 
+force_ext4:
 	/*
 	 * If the filesystem is a OK for use by in-development
 	 * filesystem code, and ext4dev is supported or ext4 is not
@@ -352,10 +418,6 @@ static int probe_ext3(struct blkid_probe *probe, struct blkid_magic *id,
 {
 	struct ext2_super_block *es;
 	es = (struct ext2_super_block *)buf;
-
-	/* Distinguish from ext4dev */
-	if (blkid_le32(es->s_flags) & EXT2_FLAGS_TEST_FILESYS)
-		return -BLKID_ERR_PARAM;
 
 	/* ext3 requires journal */
 	if (!(blkid_le32(es->s_feature_compat) &
@@ -390,6 +452,15 @@ static int probe_ext2(struct blkid_probe *probe, struct blkid_magic *id,
 	     EXT2_FEATURE_RO_COMPAT_UNSUPPORTED) ||
 	    (blkid_le32(es->s_feature_incompat) &
 	     EXT2_FEATURE_INCOMPAT_UNSUPPORTED))
+		return -BLKID_ERR_PARAM;
+
+	/* 
+	 * If ext2 is not present, but ext4 or ext4dev are, then
+	 * disclaim we are ext2
+	 */
+	if (!system_supports_ext2() &&
+	    (system_supports_ext4() || system_supports_ext4dev()) &&
+	    linux_version_code() >= EXT4_SUPPORTS_EXT2)
 		return -BLKID_ERR_PARAM;
 
 	get_ext2_info(probe->dev, id, buf);
@@ -1105,7 +1176,7 @@ static int probe_hfs(struct blkid_probe *probe __BLKID_ATTR((unused)),
 		sprintf(uuid_str, "%016llX", uuid);
 		blkid_set_tag(probe->dev, "UUID", uuid_str, 0);
 	}
-	blkid_set_tag(probe->dev, "LABEL", hfs->label, hfs->label_len);
+	blkid_set_tag(probe->dev, "LABEL", (char *)hfs->label, hfs->label_len);
 	return 0;
 }
 
@@ -1226,7 +1297,8 @@ static int probe_hfsplus(struct blkid_probe *probe,
 		return 0;
 
 	label_len = blkid_be16(key->unicode_len) * 2;
-	unicode_16be_to_utf8(label, sizeof(label), key->unicode, label_len);
+	unicode_16be_to_utf8((unsigned char *)label, sizeof(label),
+			     key->unicode, label_len);
 	blkid_set_tag(probe->dev, "LABEL", label, 0);
 	return 0;
 }
@@ -1297,6 +1369,22 @@ static int probe_lvm2(struct blkid_probe *probe,
 
 	return 0;
 }
+
+static int probe_btrfs(struct blkid_probe *probe,
+			struct blkid_magic *id,
+			unsigned char *buf)
+{
+	struct btrfs_super_block *bs;
+	const char *label = 0;
+
+	bs = (struct btrfs_super_block *)buf;
+
+	if (strlen(bs->label))
+		label = bs->label;
+	blkid_set_tag(probe->dev, "LABEL", label, sizeof(bs->label));
+	set_uuid(probe->dev, bs->fsid, 0);
+	return 0;
+}
 /*
  * Various filesystem magics that we can check for.  Note that kboff and
  * sboff are in kilobytes and bytes respectively.  All magics are in
@@ -1362,22 +1450,27 @@ static struct blkid_magic type_array[] = {
   { "swap",	 0,  0xff6, 10, "SWAPSPACE2",		probe_swap1 },
   { "swsuspend", 0,  0xff6,  9, "S1SUSPEND",		probe_swap1 },
   { "swsuspend", 0,  0xff6,  9, "S2SUSPEND",		probe_swap1 },
+  { "swsuspend", 0,  0xff6,  9, "ULSUSPEND",		probe_swap1 },
   { "swap",	 0, 0x1ff6, 10, "SWAP-SPACE",		probe_swap0 },
   { "swap",	 0, 0x1ff6, 10, "SWAPSPACE2",		probe_swap1 },
   { "swsuspend", 0, 0x1ff6,  9, "S1SUSPEND",		probe_swap1 },
   { "swsuspend", 0, 0x1ff6,  9, "S2SUSPEND",		probe_swap1 },
+  { "swsuspend", 0, 0x1ff6,  9, "ULSUSPEND",		probe_swap1 },
   { "swap",	 0, 0x3ff6, 10, "SWAP-SPACE",		probe_swap0 },
   { "swap",	 0, 0x3ff6, 10, "SWAPSPACE2",		probe_swap1 },
   { "swsuspend", 0, 0x3ff6,  9, "S1SUSPEND",		probe_swap1 },
   { "swsuspend", 0, 0x3ff6,  9, "S2SUSPEND",		probe_swap1 },
+  { "swsuspend", 0, 0x3ff6,  9, "ULSUSPEND",		probe_swap1 },
   { "swap",	 0, 0x7ff6, 10, "SWAP-SPACE",		probe_swap0 },
   { "swap",	 0, 0x7ff6, 10, "SWAPSPACE2",		probe_swap1 },
   { "swsuspend", 0, 0x7ff6,  9, "S1SUSPEND",		probe_swap1 },
   { "swsuspend", 0, 0x7ff6,  9, "S2SUSPEND",		probe_swap1 },
+  { "swsuspend", 0, 0x7ff6,  9, "ULSUSPEND",		probe_swap1 },
   { "swap",	 0, 0xfff6, 10, "SWAP-SPACE",		probe_swap0 },
   { "swap",	 0, 0xfff6, 10, "SWAPSPACE2",		probe_swap1 },
   { "swsuspend", 0, 0xfff6,  9, "S1SUSPEND",		probe_swap1 },
   { "swsuspend", 0, 0xfff6,  9, "S2SUSPEND",		probe_swap1 },
+  { "swsuspend", 0, 0xfff6,  9, "ULSUSPEND",		probe_swap1 },
   { "ocfs",	 0,	 8,  9,	"OracleCFS",		probe_ocfs },
   { "ocfs2",	 1,	 0,  6,	"OCFSV2",		probe_ocfs2 },
   { "ocfs2",	 2,	 0,  6,	"OCFSV2",		probe_ocfs2 },
@@ -1390,6 +1483,7 @@ static struct blkid_magic type_array[] = {
   { "lvm2pv",	 0,  0x018,  8, "LVM2 001",		probe_lvm2 },
   { "lvm2pv",	 1,  0x018,  8, "LVM2 001",		probe_lvm2 },
   { "lvm2pv",	 1,  0x218,  8, "LVM2 001",		probe_lvm2 },
+  { "btrfs",	 64,  0x40,  8, "_BHRfS_M",		probe_btrfs },
   {   NULL,	 0,	 0,  0, NULL,			NULL }
 };
 
@@ -1532,10 +1626,8 @@ found_type:
 			   dev->bid_name, (long long)st.st_rdev, type));
 	}
 
-	if (probe.sbbuf)
-		free(probe.sbbuf);
-	if (probe.buf)
-		free(probe.buf);
+	free(probe.sbbuf);
+	free(probe.buf);
 	if (probe.fd >= 0)
 		close(probe.fd);
 

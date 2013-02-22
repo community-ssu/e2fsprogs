@@ -4,11 +4,12 @@
  * Copyright (C) 1995,1996,1997,1998,1999,2000 Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -34,7 +35,7 @@
 #include "ext2_fs.h"
 #include "ext2fs.h"
 
-#ifdef HAVE_MNTENT_H
+#ifdef HAVE_SETMNTENT
 /*
  * Helper function which checks a file in /etc/mtab format to see if a
  * filesystem is mounted.  Returns an error if the file doesn't exist
@@ -53,7 +54,7 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 
 	*mount_flags = 0;
 	if ((f = setmntent (mtab_file, "r")) == NULL)
-		return errno;
+		return (errno == ENOENT ? EXT2_NO_MTAB_FILE : errno);
 	if (stat(file, &st_buf) == 0) {
 		if (S_ISBLK(st_buf.st_mode)) {
 #ifndef __GNU__ /* The GNU hurd is broken with respect to stat devices */
@@ -65,6 +66,8 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 		}
 	}
 	while ((mnt = getmntent (f)) != NULL) {
+		if (mnt->mnt_fsname[0] != '/')
+			continue;
 		if (strcmp(file, mnt->mnt_fsname) == 0)
 			break;
 		if (stat(mnt->mnt_fsname, &st_buf) == 0) {
@@ -228,7 +231,7 @@ static errcode_t check_getmntinfo(const char *file, int *mount_flags,
 	return 0;
 }
 #endif /* HAVE_GETMNTINFO */
-#endif /* HAVE_MNTENT_H */
+#endif /* HAVE_SETMNTENT */
 
 /*
  * Check to see if we're dealing with the swap device.
@@ -251,8 +254,16 @@ static int is_swap_device(const char *file)
 	if (!(f = fopen("/proc/swaps", "r")))
 		return 0;
 	/* Skip the first line */
-	if (fgets(buf, sizeof(buf), f))
+	if (!fgets(buf, sizeof(buf), f))
+		goto leave;
+	if (*buf && strncmp(buf, "Filename\t", 9))
+		/* Linux <=2.6.19 contained a bug in the /proc/swaps
+		 * code where the header would not be displayed
+		 */
+		goto valid_first_line;
+
 	while (fgets(buf, sizeof(buf), f)) {
+valid_first_line:
 		if ((cp = strchr(buf, ' ')) != NULL)
 			*cp = 0;
 		if ((cp = strchr(buf, '\t')) != NULL)
@@ -270,6 +281,8 @@ static int is_swap_device(const char *file)
 		}
 #endif 	/* __GNU__ */
 	}
+
+leave:
 	fclose(f);
 	return ret;
 }
@@ -297,7 +310,7 @@ errcode_t ext2fs_check_mount_point(const char *device, int *mount_flags,
 		*mount_flags = EXT2_MF_MOUNTED | EXT2_MF_SWAP;
 		strncpy(mtpt, "<swap>", mtlen);
 	} else {
-#ifdef HAVE_MNTENT_H
+#ifdef HAVE_SETMNTENT
 		retval = check_mntent(device, mount_flags, mtpt, mtlen);
 #else
 #ifdef HAVE_GETMNTINFO
@@ -308,7 +321,7 @@ errcode_t ext2fs_check_mount_point(const char *device, int *mount_flags,
 #endif
 		*mount_flags = 0;
 #endif /* HAVE_GETMNTINFO */
-#endif /* HAVE_MNTENT_H */
+#endif /* HAVE_SETMNTENT */
 	}
 	if (retval)
 		return retval;
@@ -349,6 +362,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	add_error_table(&et_ext2_error_table);
 	mntpt[0] = 0;
 	retval = ext2fs_check_mount_point(argv[1], &mount_flags,
 					  mntpt, sizeof(mntpt));

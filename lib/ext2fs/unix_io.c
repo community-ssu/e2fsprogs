@@ -10,14 +10,18 @@
  * 	2002 by Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
 #define _LARGEFILE_SOURCE
 #define _LARGEFILE64_SOURCE
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -46,10 +50,15 @@
 #if HAVE_SYS_RESOURCE_H
 #include <sys/resource.h>
 #endif
+#if HAVE_LINUX_FALLOC_H
+#include <linux/falloc.h>
+#endif
 
-#if defined(__linux__) && defined(_IO) && !defined(BLKGETSIZE)
+#if defined(__linux__) && defined(_IO) && !defined(BLKROGET)
 #define BLKROGET   _IO(0x12, 94) /* Get read-only status (0 = read_write).  */
 #endif
+
+#undef ALIGN_DEBUG
 
 #include "ext2_fs.h"
 #include "ext2fs.h"
@@ -62,11 +71,11 @@
 	  if ((struct)->magic != (code)) return (code)
 
 struct unix_cache {
-	char		*buf;
-	unsigned long	block;
-	int		access_time;
-	unsigned	dirty:1;
-	unsigned	in_use:1;
+	char			*buf;
+	unsigned long long	block;
+	int			access_time;
+	unsigned		dirty:1;
+	unsigned		in_use:1;
 };
 
 #define CACHE_SIZE 8
@@ -77,11 +86,16 @@ struct unix_private_data {
 	int	magic;
 	int	dev;
 	int	flags;
+	int	align;
 	int	access_time;
 	ext2_loff_t offset;
 	struct unix_cache cache[CACHE_SIZE];
+	void	*bounce;
 	struct struct_io_stats io_stats;
 };
+
+#define IS_ALIGNED(n, align) ((((unsigned long) n) & \
+			       ((unsigned long) ((align)-1))) == 0)
 
 static errcode_t unix_open(const char *name, int flags, io_channel *channel);
 static errcode_t unix_close(io_channel channel);
@@ -103,14 +117,8 @@ static errcode_t unix_read_blk64(io_channel channel, unsigned long long block,
 			       int count, void *data);
 static errcode_t unix_write_blk64(io_channel channel, unsigned long long block,
 				int count, const void *data);
-
-/* __FreeBSD_kernel__ is defined by GNU/kFreeBSD - the FreeBSD kernel
- * does not know buffered block devices - everything is raw. */
-#if defined(__CYGWIN__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
-#define NEED_BOUNCE_BUFFER
-#else
-#undef NEED_BOUNCE_BUFFER
-#endif
+static errcode_t unix_discard(io_channel channel, unsigned long long block,
+			      unsigned long long count);
 
 static struct struct_io_manager struct_unix_manager = {
 	EXT2_ET_MAGIC_IO_MANAGER,
@@ -121,15 +129,12 @@ static struct struct_io_manager struct_unix_manager = {
 	unix_read_blk,
 	unix_write_blk,
 	unix_flush,
-#ifdef NEED_BOUNCE_BUFFER
-	0,
-#else
 	unix_write_byte,
-#endif
 	unix_set_option,
 	unix_get_stats,
 	unix_read_blk64,
 	unix_write_blk64,
+	unix_discard,
 };
 
 io_manager unix_io_manager = &struct_unix_manager;
@@ -153,16 +158,16 @@ static errcode_t unix_get_stats(io_channel channel, io_stats *stats)
 /*
  * Here are the raw I/O functions
  */
-#ifndef NEED_BOUNCE_BUFFER
 static errcode_t raw_read_blk(io_channel channel,
 			      struct unix_private_data *data,
 			      unsigned long long block,
-			      int count, void *buf)
+			      int count, void *bufv)
 {
 	errcode_t	retval;
 	ssize_t		size;
 	ext2_loff_t	location;
 	int		actual = 0;
+	unsigned char	*buf = bufv;
 
 	size = (count < 0) ? -count : count * channel->block_size;
 	data->io_stats.bytes_read += size;
@@ -171,12 +176,39 @@ static errcode_t raw_read_blk(io_channel channel,
 		retval = errno ? errno : EXT2_ET_LLSEEK_FAILED;
 		goto error_out;
 	}
-	actual = read(data->dev, buf, size);
-	if (actual != size) {
-		if (actual < 0)
-			actual = 0;
-		retval = EXT2_ET_SHORT_READ;
-		goto error_out;
+	if ((channel->align == 0) ||
+	    (IS_ALIGNED(buf, channel->align) &&
+	     IS_ALIGNED(size, channel->align))) {
+		actual = read(data->dev, buf, size);
+		if (actual != size) {
+		short_read:
+			if (actual < 0)
+				actual = 0;
+			retval = EXT2_ET_SHORT_READ;
+			goto error_out;
+		}
+		return 0;
+	}
+
+#ifdef ALIGN_DEBUG
+	printf("raw_read_blk: O_DIRECT fallback: %p %lu\n", buf,
+	       (unsigned long) size);
+#endif
+
+	/*
+	 * The buffer or size which we're trying to read isn't aligned
+	 * to the O_DIRECT rules, so we need to do this the hard way...
+	 */
+	while (size > 0) {
+		actual = read(data->dev, data->bounce, channel->block_size);
+		if (actual != channel->block_size)
+			goto short_read;
+		actual = size;
+		if (size > channel->block_size)
+			actual = channel->block_size;
+		memcpy(buf, data->bounce, actual);
+		size -= actual;
+		buf += actual;
 	}
 	return 0;
 
@@ -187,71 +219,17 @@ error_out:
 					       size, actual, retval);
 	return retval;
 }
-#else /* NEED_BOUNCE_BUFFER */
-/*
- * Windows and FreeBSD block devices only allow sector alignment IO in offset and size
- */
-static errcode_t raw_read_blk(io_channel channel,
-			      struct unix_private_data *data,
-			      unsigned long block,
-			      int count, void *buf)
-{
-	errcode_t	retval;
-	size_t		size, alignsize, fragment;
-	ext2_loff_t	location;
-	int		total = 0, actual;
-#define BLOCKALIGN 512
-	char		sector[BLOCKALIGN];
-
-	size = (count < 0) ? -count : count * channel->block_size;
-	data->io_stats.bytes_read += size;
-	location = ((ext2_loff_t) block * channel->block_size) + data->offset;
-#ifdef DEBUG
-	printf("count=%d, size=%d, block=%lu, blk_size=%d, location=%llx\n",
-	 		count, size, block, channel->block_size, (long long)location);
-#endif
-	if (ext2fs_llseek(data->dev, location, SEEK_SET) != location) {
-		retval = errno ? errno : EXT2_ET_LLSEEK_FAILED;
-		goto error_out;
-	}
-	fragment = size % BLOCKALIGN;
-	alignsize = size - fragment;
-	if (alignsize) {
-		actual = read(data->dev, buf, alignsize);
-		if (actual != alignsize)
-			goto short_read;
-	}
-	if (fragment) {
-		actual = read(data->dev, sector, BLOCKALIGN);
-		if (actual != BLOCKALIGN)
-			goto short_read;
-		memcpy(buf+alignsize, sector, fragment);
-	}
-	return 0;
-
-short_read:
-	if (actual>0)
-		total += actual;
-	retval = EXT2_ET_SHORT_READ;
-
-error_out:
-	memset((char *) buf+total, 0, size-actual);
-	if (channel->read_error)
-		retval = (channel->read_error)(channel, block, count, buf,
-					       size, actual, retval);
-	return retval;
-}
-#endif
 
 static errcode_t raw_write_blk(io_channel channel,
 			       struct unix_private_data *data,
 			       unsigned long long block,
-			       int count, const void *buf)
+			       int count, const void *bufv)
 {
 	ssize_t		size;
 	ext2_loff_t	location;
 	int		actual = 0;
 	errcode_t	retval;
+	const unsigned char *buf = bufv;
 
 	if (count == 1)
 		size = channel->block_size;
@@ -269,10 +247,44 @@ static errcode_t raw_write_blk(io_channel channel,
 		goto error_out;
 	}
 
-	actual = write(data->dev, buf, size);
-	if (actual != size) {
-		retval = EXT2_ET_SHORT_WRITE;
-		goto error_out;
+	if ((channel->align == 0) ||
+	    (IS_ALIGNED(buf, channel->align) &&
+	     IS_ALIGNED(size, channel->align))) {
+		actual = write(data->dev, buf, size);
+		if (actual != size) {
+		short_write:
+			retval = EXT2_ET_SHORT_WRITE;
+			goto error_out;
+		}
+		return 0;
+	}
+
+#ifdef ALIGN_DEBUG
+	printf("raw_write_blk: O_DIRECT fallback: %p %lu\n", buf,
+	       (unsigned long) size);
+#endif
+	/*
+	 * The buffer or size which we're trying to write isn't aligned
+	 * to the O_DIRECT rules, so we need to do this the hard way...
+	 */
+	while (size > 0) {
+		if (size < channel->block_size) {
+			actual = read(data->dev, data->bounce,
+				      channel->block_size);
+			if (actual != channel->block_size) {
+				retval = EXT2_ET_SHORT_READ;
+				goto error_out;
+			}
+		}
+		actual = size;
+		if (size > channel->block_size)
+			actual = channel->block_size;
+		memcpy(data->bounce, buf, actual);
+		actual = write(data->dev, data->bounce, channel->block_size);
+		if (actual != channel->block_size)
+			goto short_write;
+		size -= actual;
+		buf += actual;
 	}
 	return 0;
 
@@ -302,11 +314,18 @@ static errcode_t alloc_cache(io_channel channel,
 		cache->access_time = 0;
 		cache->dirty = 0;
 		cache->in_use = 0;
-		if ((retval = ext2fs_get_mem(channel->block_size,
-					     &cache->buf)))
+		if (cache->buf)
+			ext2fs_free_mem(&cache->buf);
+		retval = io_channel_alloc_buf(channel, 0, &cache->buf);
+		if (retval)
 			return retval;
 	}
-	return 0;
+	if (channel->align) {
+		if (data->bounce)
+			ext2fs_free_mem(&data->bounce);
+		retval = io_channel_alloc_buf(channel, 0, &data->bounce);
+	}
+	return retval;
 }
 
 /* Free the cache buffers */
@@ -323,8 +342,9 @@ static void free_cache(struct unix_private_data *data)
 		cache->in_use = 0;
 		if (cache->buf)
 			ext2fs_free_mem(&cache->buf);
-		cache->buf = 0;
 	}
+	if (data->bounce)
+		ext2fs_free_mem(&data->bounce);
 }
 
 #ifndef NO_IO_CACHE
@@ -409,13 +429,52 @@ static errcode_t flush_cached_blocks(io_channel channel,
 }
 #endif /* NO_IO_CACHE */
 
+#ifdef __linux__
+#ifndef BLKDISCARDZEROES
+#define BLKDISCARDZEROES _IO(0x12,124)
+#endif
+#endif
+
+int ext2fs_open_file(const char *pathname, int flags, mode_t mode)
+{
+	if (mode)
+#if defined(HAVE_OPEN64) && !defined(__OSX_AVAILABLE_BUT_DEPRECATED)
+		return open64(pathname, flags, mode);
+	else
+		return open64(pathname, flags);
+#else
+		return open(pathname, flags, mode);
+	else
+		return open(pathname, flags);
+#endif
+}
+
+int ext2fs_stat(const char *path, ext2fs_struct_stat *buf)
+{
+#if defined(HAVE_FSTAT64) && !defined(__OSX_AVAILABLE_BUT_DEPRECATED)
+	return stat64(path, buf);
+#else
+	return stat(path, buf);
+#endif
+}
+
+int ext2fs_fstat(int fd, ext2fs_struct_stat *buf)
+{
+#if defined(HAVE_FSTAT64) && !defined(__OSX_AVAILABLE_BUT_DEPRECATED)
+	return fstat64(fd, buf);
+#else
+	return fstat(fd, buf);
+#endif
+}
+
 static errcode_t unix_open(const char *name, int flags, io_channel *channel)
 {
 	io_channel	io = NULL;
 	struct unix_private_data *data = NULL;
 	errcode_t	retval;
-	int		open_flags;
-	struct stat	st;
+	int		open_flags, zeroes = 0;
+	int		f_nocache = 0;
+	ext2fs_struct_stat st;
 #ifdef __linux__
 	struct 		utsname ut;
 #endif
@@ -424,7 +483,7 @@ static errcode_t unix_open(const char *name, int flags, io_channel *channel)
 		return EXT2_ET_BAD_DEVICE_NAME;
 	retval = ext2fs_get_mem(sizeof(struct struct_io_channel), &io);
 	if (retval)
-		return retval;
+		goto cleanup;
 	memset(io, 0, sizeof(struct struct_io_channel));
 	io->magic = EXT2_ET_MAGIC_IO_CHANNEL;
 	retval = ext2fs_get_mem(sizeof(struct unix_private_data), &data);
@@ -447,21 +506,66 @@ static errcode_t unix_open(const char *name, int flags, io_channel *channel)
 	data->magic = EXT2_ET_MAGIC_UNIX_IO_CHANNEL;
 	data->io_stats.num_fields = 2;
 
-	if ((retval = alloc_cache(io, data)))
-		goto cleanup;
-
 	open_flags = (flags & IO_FLAG_RW) ? O_RDWR : O_RDONLY;
 	if (flags & IO_FLAG_EXCLUSIVE)
 		open_flags |= O_EXCL;
-#ifdef HAVE_OPEN64
-	data->dev = open64(io->name, open_flags);
-#else
-	data->dev = open(io->name, open_flags);
+#if defined(O_DIRECT)
+	if (flags & IO_FLAG_DIRECT_IO) {
+		open_flags |= O_DIRECT;
+		io->align = ext2fs_get_dio_alignment(data->dev);
+	}
+#elif defined(F_NOCACHE)
+	if (flags & IO_FLAG_DIRECT_IO) {
+		f_nocache = F_NOCACHE;
+		io->align = 4096;
+	}
 #endif
+	data->flags = flags;
+
+	data->dev = ext2fs_open_file(io->name, open_flags, 0);
 	if (data->dev < 0) {
 		retval = errno;
 		goto cleanup;
 	}
+	if (f_nocache) {
+		if (fcntl(data->dev, f_nocache, 1) < 0) {
+			retval = errno;
+			goto cleanup;
+		}
+	}
+
+	/*
+	 * If the device is really a block device, then set the
+	 * appropriate flag, otherwise we can set DISCARD_ZEROES flag
+	 * because we are going to use punch hole instead of discard
+	 * and if it succeed, subsequent read from sparse area returns
+	 * zero.
+	 */
+	if (ext2fs_stat(io->name, &st) == 0) {
+		if (S_ISBLK(st.st_mode))
+			io->flags |= CHANNEL_FLAGS_BLOCK_DEVICE;
+		else
+			io->flags |= CHANNEL_FLAGS_DISCARD_ZEROES;
+	}
+
+#ifdef BLKDISCARDZEROES
+	ioctl(data->dev, BLKDISCARDZEROES, &zeroes);
+	if (zeroes)
+		io->flags |= CHANNEL_FLAGS_DISCARD_ZEROES;
+#endif
+
+#if defined(__CYGWIN__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+	/*
+	 * Some operating systems require that the buffers be aligned,
+	 * regardless of O_DIRECT
+	 */
+	if (!io->align)
+		io->align = 512;
+#endif
+
+
+	if ((retval = alloc_cache(io, data)))
+		goto cleanup;
 
 #ifdef BLKROGET
 	if (flags & IO_FLAG_RW) {
@@ -498,7 +602,7 @@ static errcode_t unix_open(const char *name, int flags, io_channel *channel)
 	     (ut.release[2] == '4') && (ut.release[3] == '.') &&
 	     (ut.release[4] == '1') && (ut.release[5] >= '0') &&
 	     (ut.release[5] < '8')) &&
-	    (fstat(data->dev, &st) == 0) &&
+	    (ext2fs_stat(io->name, &st) == 0) &&
 	    (S_ISBLK(st.st_mode))) {
 		struct rlimit	rlim;
 
@@ -615,6 +719,22 @@ static errcode_t unix_read_blk64(io_channel channel, unsigned long long block,
 			cp += channel->block_size;
 			continue;
 		}
+		if (count == 1) {
+			/*
+			 * Special case where we read directly into the
+			 * cache buffer; important in the O_DIRECT case
+			 */
+			cache = reuse[0];
+			reuse_cache(channel, data, cache, block);
+			if ((retval = raw_read_blk(channel, data, block, 1,
+						   cache->buf))) {
+				cache->in_use = 0;
+				return retval;
+			}
+			memcpy(cp, cache->buf, channel->block_size);
+			return 0;
+		}
+
 		/*
 		 * Find the number of uncached blocks so we can do a
 		 * single read request
@@ -716,6 +836,13 @@ static errcode_t unix_write_byte(io_channel channel, unsigned long offset,
 	data = (struct unix_private_data *) channel->private_data;
 	EXT2_CHECK_MAGIC(data, EXT2_ET_MAGIC_UNIX_IO_CHANNEL);
 
+	if (channel->align != 0) {
+#ifdef ALIGN_DEBUG
+		printf("unix_write_byte: O_DIRECT fallback\n");
+#endif
+		return EXT2_ET_UNIMPLEMENTED;
+	}
+
 #ifndef NO_IO_CACHE
 	/*
 	 * Flush out the cache completely
@@ -777,4 +904,52 @@ static errcode_t unix_set_option(io_channel channel, const char *option,
 		return 0;
 	}
 	return EXT2_ET_INVALID_ARGUMENT;
+}
+
+#if defined(__linux__) && !defined(BLKDISCARD)
+#define BLKDISCARD		_IO(0x12,119)
+#endif
+
+static errcode_t unix_discard(io_channel channel, unsigned long long block,
+			      unsigned long long count)
+{
+	struct unix_private_data *data;
+	__uint64_t	range[2];
+	int		ret;
+
+	EXT2_CHECK_MAGIC(channel, EXT2_ET_MAGIC_IO_CHANNEL);
+	data = (struct unix_private_data *) channel->private_data;
+	EXT2_CHECK_MAGIC(data, EXT2_ET_MAGIC_UNIX_IO_CHANNEL);
+
+	if (channel->flags & CHANNEL_FLAGS_BLOCK_DEVICE) {
+#ifdef BLKDISCARD
+		range[0] = (__uint64_t)(block) * channel->block_size;
+		range[1] = (__uint64_t)(count) * channel->block_size;
+
+		ret = ioctl(data->dev, BLKDISCARD, &range);
+#else
+		goto unimplemented;
+#endif
+	} else {
+#if defined(HAVE_FALLOCATE) && defined(FALLOC_FL_PUNCH_HOLE)
+		/*
+		 * If we are not on block device, try to use punch hole
+		 * to reclaim free space.
+		 */
+		ret = fallocate(data->dev,
+				FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+				(off_t)(block) * channel->block_size,
+				(off_t)(count) * channel->block_size);
+#else
+		goto unimplemented;
+#endif
+	}
+	if (ret < 0) {
+		if (errno == EOPNOTSUPP)
+			goto unimplemented;
+		return errno;
+	}
+	return 0;
+unimplemented:
+	return EXT2_ET_UNIMPLEMENTED;
 }

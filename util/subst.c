@@ -35,9 +35,7 @@ struct subst_entry *subst_table = 0;
 static int add_subst(char *name, char *value)
 {
 	struct subst_entry	*ent = 0;
-	int	retval;
 
-	retval = ENOMEM;
 	ent = (struct subst_entry *) malloc(sizeof(struct subst_entry));
 	if (!ent)
 		goto fail;
@@ -54,13 +52,10 @@ static int add_subst(char *name, char *value)
 	return 0;
 fail:
 	if (ent) {
-		if (ent->name)
-			free(ent->name);
-		if (ent->value)
-			free(ent->value);
+		free(ent->name);
 		free(ent);
 	}
-	return retval;
+	return ENOMEM;
 }
 
 static struct subst_entry *fetch_subst_entry(char *name)

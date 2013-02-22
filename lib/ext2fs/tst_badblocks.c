@@ -4,11 +4,12 @@
  * Copyright (C) 1996 by Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -227,7 +228,7 @@ int file_test_invalid(badblocks_list bb)
 	fs->super = malloc(SUPERBLOCK_SIZE);
 	memset(fs->super, 0, SUPERBLOCK_SIZE);
 	fs->super->s_first_data_block = 1;
-	fs->super->s_blocks_count = 100;
+	ext2fs_blocks_count_set(fs->super, 100);
 
 	f = tmpfile();
 	if (!f) {
@@ -270,6 +271,8 @@ int main(int argc, char **argv)
 	badblocks_list bb1, bb2, bb3, bb4, bb5;
 	int	equal;
 	errcode_t	retval;
+
+	add_error_table(&et_ext2_error_table);
 
 	bb1 = bb2 = bb3 = bb4 = bb5 = 0;
 

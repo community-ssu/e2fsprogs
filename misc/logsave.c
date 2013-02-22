@@ -12,6 +12,7 @@
 
 #define _XOPEN_SOURCE 600 /* for inclusion of sa_handler in Solaris */
 
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -41,7 +42,7 @@ pid_t	child_pid = -1;
 
 static void usage(char *progname)
 {
-	printf("Usage: %s [-v] [-d dir] logfile program\n", progname);
+	printf("Usage: %s [-asv] logfile program\n", progname);
 	exit(1);
 }
 
@@ -49,19 +50,61 @@ static void usage(char *progname)
 #define SEND_CONSOLE	0x02
 #define SEND_BOTH	0x03
 
+/*
+ * Helper function that does the right thing if write returns a
+ * partial write, or an EGAIN/EINTR error.
+ */
+static int write_all(int fd, const char *buf, size_t count)
+{
+	ssize_t ret;
+	int c = 0;
+
+	while (count > 0) {
+		ret = write(fd, buf, count);
+		if (ret < 0) {
+			if ((errno == EAGAIN) || (errno == EINTR))
+				continue;
+			return -1;
+		}
+		count -= ret;
+		buf += ret;
+		c += ret;
+	}
+	return c;
+}
+
 static void send_output(const char *buffer, int c, int flag)
 {
-	char	*n;
+	const char	*cp;
+	char		*n;
+	int		cnt, d, del;
 
 	if (c == 0)
 		c = strlen(buffer);
 
-	if (flag & SEND_CONSOLE)
-		write(1, buffer, c);
+	if (flag & SEND_CONSOLE) {
+		cnt = c;
+		cp = buffer;
+		while (cnt) {
+			del = 0;
+			for (d=0; d < cnt; d++) {
+				if (skip_mode &&
+				    (cp[d] == '\001' || cp[d] == '\002')) {
+					del = 1;
+					break;
+				}
+			}
+			write_all(1, cp, d);
+			if (del)
+				d++;
+			cnt -= d;
+			cp += d;
+		}
+	}
 	if (!(flag & SEND_LOG))
 		return;
 	if (outfd > 0)
-		write(outfd, buffer, c);
+		write_all(outfd, buffer, c);
 	else {
 		n = realloc(outbuf, outbufsize + c);
 		if (n) {
@@ -147,6 +190,7 @@ static int run_program(char **argv)
 		dup2(fds[1],1);		/* fds[1] replaces stdout */
 		dup2(fds[1],2);  	/* fds[1] replaces stderr */
 		close(fds[0]);	/* don't need this here */
+		close(fds[1]);
 
 		execvp(argv[0], argv);
 		perror(argv[0]);
@@ -280,10 +324,11 @@ int main(int argc, char **argv)
 			outfd = open(outfn, openflags, 0644);
 			sleep(1);
 		}
-		write(outfd, outbuf, outbufsize);
+		write_all(outfd, outbuf, outbufsize);
 		free(outbuf);
 	}
-	close(outfd);
+	if (outfd >= 0)
+		close(outfd);
 
 	exit(rc);
 }

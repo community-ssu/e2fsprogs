@@ -5,11 +5,12 @@
  * Copyright (C) 2002 Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -163,9 +164,10 @@ static errcode_t inode_open(const char *name, int flags, io_channel *channel)
 	return 0;
 
 cleanup:
-	if (data) {
+	if (io && io->name)
+		ext2fs_free_mem(&io->name);
+	if (data)
 		ext2fs_free_mem(&data);
-	}
 	if (io)
 		ext2fs_free_mem(&io);
 	return retval;

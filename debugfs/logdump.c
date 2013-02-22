@@ -9,6 +9,7 @@
  * License.
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -61,7 +62,8 @@ static void dump_revoke_block(FILE *, char *, journal_superblock_t *,
 
 static void dump_metadata_block(FILE *, struct journal_source *,
 				journal_superblock_t*,
-				unsigned int, unsigned int, int, tid_t);
+				unsigned int, unsigned int, unsigned int,
+				int, tid_t);
 
 static void do_hexdump (FILE *, char *, int);
 
@@ -156,7 +158,7 @@ void do_logdump(int argc, char **argv)
 				    / sizeof(struct ext2_inode));
 
 		inode_block_to_dump =
-			current_fs->group_desc[inode_group].bg_inode_table +
+			ext2fs_inode_table_loc(current_fs, inode_group) +
 			(group_offset / inodes_per_block);
 		inode_offset_to_dump = ((group_offset % inodes_per_block)
 					* sizeof(struct ext2_inode));
@@ -181,7 +183,7 @@ void do_logdump(int argc, char **argv)
 		group_to_dump = ((block_to_dump -
 				  es->s_first_data_block)
 				 / es->s_blocks_per_group);
-		bitmap_to_dump = current_fs->group_desc[group_to_dump].bg_block_bitmap;
+		bitmap_to_dump = ext2fs_block_bitmap_loc(current_fs, group_to_dump);
 	}
 
 	if (!journal_fn && check_fs_open(argv[0]))
@@ -208,6 +210,7 @@ void do_logdump(int argc, char **argv)
 			memset(&journal_inode, 0, sizeof(struct ext2_inode));
 			memcpy(&journal_inode.i_block[0], es->s_jnl_blocks,
 			       EXT2_N_BLOCKS*4);
+			journal_inode.i_size_high = es->s_jnl_blocks[15];
 			journal_inode.i_size = es->s_jnl_blocks[16];
 			journal_inode.i_links_count = 1;
 			journal_inode.i_mode = LINUX_S_IFREG | 0600;
@@ -258,7 +261,7 @@ void do_logdump(int argc, char **argv)
 		close(journal_fd);
 
 errout:
-	if (out_file != stdout)
+	if (out_file && (out_file != stdout))
 		fclose(out_file);
 
 	return;
@@ -299,9 +302,10 @@ static int read_journal_block(const char *cmd, struct journal_source *source,
 	}
 
 	if (retval)
-		com_err(cmd, retval, "while while reading journal");
+		com_err(cmd, retval, "while reading journal");
 	else if (*got != (unsigned int) size) {
-		com_err(cmd, 0, "short read (read %d, expected %d) while while reading journal", *got, size);
+		com_err(cmd, 0, "short read (read %d, expected %d) "
+			"while reading journal", *got, size);
 		retval = -1;
 	}
 
@@ -366,7 +370,7 @@ static void dump_journal(char *cmdname, FILE *out_file,
 			fprintf(out_file, "\tuuid=%s\n", jsb_buffer);
 			fprintf(out_file, "\tblocksize=%d\n", blocksize);
 			fprintf(out_file, "\tjournal data size %lu\n",
-				(unsigned long) sb->s_blocks_count);
+				(unsigned long) ext2fs_blocks_count(sb));
 		}
 	}
 
@@ -464,13 +468,15 @@ static void dump_descriptor_block(FILE *out_file,
 				  unsigned int *blockp, int blocksize,
 				  tid_t transaction)
 {
-	int			offset;
+	int			offset, tag_size = JBD_TAG_SIZE32;
 	char			*tagp;
 	journal_block_tag_t	*tag;
 	unsigned int		blocknr;
 	__u32			tag_block;
 	__u32			tag_flags;
 
+	if (be32_to_cpu(jsb->s_feature_incompat) & JFS_FEATURE_INCOMPAT_64BIT)
+		tag_size = JBD_TAG_SIZE64;
 
 	offset = sizeof(journal_header_t);
 	blocknr = *blockp;
@@ -487,7 +493,7 @@ static void dump_descriptor_block(FILE *out_file,
 		 * the next one... */
 		tagp = &buf[offset];
 		tag = (journal_block_tag_t *) tagp;
-		offset += sizeof(journal_block_tag_t);
+		offset += tag_size;
 
 		/* ... and if we have gone too far, then we've reached the
 		   end of this block. */
@@ -501,7 +507,7 @@ static void dump_descriptor_block(FILE *out_file,
 			offset += 16;
 
 		dump_metadata_block(out_file, source, jsb,
-				    blocknr, tag_block, blocksize,
+				    blocknr, tag_block, tag_flags, blocksize,
 				    transaction);
 
 		++blocknr;
@@ -566,6 +572,7 @@ static void dump_metadata_block(FILE *out_file, struct journal_source *source,
 				journal_superblock_t *jsb EXT2FS_ATTR((unused)),
 				unsigned int log_blocknr,
 				unsigned int fs_blocknr,
+				unsigned int log_tag_flags,
 				int blocksize,
 				tid_t transaction)
 {
@@ -582,7 +589,8 @@ static void dump_metadata_block(FILE *out_file, struct journal_source *source,
 	fprintf(out_file, "  FS block %u logged at ", fs_blocknr);
 	if (!dump_all)
 		fprintf(out_file, "sequence %u, ", transaction);
-	fprintf(out_file, "journal block %u\n", log_blocknr);
+	fprintf(out_file, "journal block %u (flags 0x%x)\n", log_blocknr,
+		log_tag_flags);
 
 	/* There are two major special cases to parse:
 	 *
@@ -613,7 +621,7 @@ static void dump_metadata_block(FILE *out_file, struct journal_source *source,
 		int offset;
 
 		super = current_fs->super;
-		offset = ((fs_blocknr - super->s_first_data_block) %
+		offset = ((block_to_dump - super->s_first_data_block) %
 			  super->s_blocks_per_group);
 
 		fprintf(out_file, "    (block bitmap for block %u: "

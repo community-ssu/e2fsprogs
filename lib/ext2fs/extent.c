@@ -4,11 +4,12 @@
  * Copyright (C) 2007 Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -53,6 +54,7 @@ struct ext2_extent_handle {
 	ext2_filsys		fs;
 	ext2_ino_t 		ino;
 	struct ext2_inode	*inode;
+	struct ext2_inode	inodebuf;
 	int			type;
 	int			level;
 	int			max_depth;
@@ -104,7 +106,7 @@ static void dbg_print_extent(char *desc, struct ext2fs_extent *extent)
 {
 	if (desc)
 		printf("%s: ", desc);
-	printf("extent: lblk %llu--%llu, len %lu, pblk %llu, flags: ",
+	printf("extent: lblk %llu--%llu, len %u, pblk %llu, flags: ",
 	       extent->e_lblk, extent->e_lblk + extent->e_len - 1,
 	       extent->e_len, extent->e_pblk);
 	if (extent->e_flags & EXT2_EXTENT_FLAGS_LEAF)
@@ -165,10 +167,8 @@ extern void ext2fs_extent_free(ext2_extent_handle_t handle)
 	if (!handle)
 		return;
 
-	if (handle->inode)
-		ext2fs_free_mem(&handle->inode);
 	if (handle->path) {
-		for (i=1; i < handle->max_depth; i++) {
+		for (i=1; i <= handle->max_depth; i++) {
 			if (handle->path[i].buf)
 				ext2fs_free_mem(&handle->path[i].buf);
 		}
@@ -180,32 +180,40 @@ extern void ext2fs_extent_free(ext2_extent_handle_t handle)
 extern errcode_t ext2fs_extent_open(ext2_filsys fs, ext2_ino_t ino,
 				    ext2_extent_handle_t *ret_handle)
 {
+	return ext2fs_extent_open2(fs, ino, NULL, ret_handle);
+}
+
+extern errcode_t ext2fs_extent_open2(ext2_filsys fs, ext2_ino_t ino,
+				    struct ext2_inode *inode,
+				    ext2_extent_handle_t *ret_handle)
+{
 	struct ext2_extent_handle	*handle;
 	errcode_t			retval;
-	int				isize = EXT2_INODE_SIZE(fs->super);
 	int				i;
 	struct ext3_extent_header	*eh;
 
 	EXT2_CHECK_MAGIC(fs, EXT2_ET_MAGIC_EXT2FS_FILSYS);
 
-	if ((ino == 0) || (ino > fs->super->s_inodes_count))
-		return EXT2_ET_BAD_INODE_NUM;
+	if (!inode)
+		if ((ino == 0) || (ino > fs->super->s_inodes_count))
+			return EXT2_ET_BAD_INODE_NUM;
 
 	retval = ext2fs_get_mem(sizeof(struct ext2_extent_handle), &handle);
 	if (retval)
 		return retval;
 	memset(handle, 0, sizeof(struct ext2_extent_handle));
 
-	retval = ext2fs_get_mem(isize, &handle->inode);
-	if (retval)
-		goto errout;
-
 	handle->ino = ino;
 	handle->fs = fs;
 
-	retval = ext2fs_read_inode_full(fs, ino, handle->inode, isize);
-	if (retval)
-		goto errout;
+	if (inode) {
+		handle->inode = inode;
+	} else {
+		handle->inode = &handle->inodebuf;
+		retval = ext2fs_read_inode(fs, ino, handle->inode);
+		if (retval)
+			goto errout;
+	}
 
 	eh = (struct ext3_extent_header *) &handle->inode->i_block[0];
 
@@ -246,9 +254,8 @@ extern errcode_t ext2fs_extent_open(ext2_filsys fs, ext2_ino_t ino,
 	handle->path[0].max_entries = ext2fs_le16_to_cpu(eh->eh_max);
 	handle->path[0].curr = 0;
 	handle->path[0].end_blk =
-		((((__u64) handle->inode->i_size_high << 32) +
-		  handle->inode->i_size + (fs->blocksize - 1))
-		 >> EXT2_BLOCK_SIZE_BITS(fs->super));
+		(EXT2_I_SIZE(handle->inode) + fs->blocksize - 1) >>
+		 EXT2_BLOCK_SIZE_BITS(fs->super);
 	handle->path[0].visit_num = 1;
 	handle->level = 0;
 	handle->magic = EXT2_ET_MAGIC_EXTENT_HANDLE;
@@ -273,7 +280,7 @@ errcode_t ext2fs_extent_get(ext2_extent_handle_t handle,
 	struct ext3_extent_idx		*ix = 0;
 	struct ext3_extent		*ex;
 	errcode_t			retval;
-	blk_t				blk;
+	blk64_t				blk;
 	blk64_t				end_blk;
 	int				orig_op, op;
 
@@ -309,7 +316,7 @@ retry:
 				return EXT2_ET_EXTENT_NO_NEXT;
 		}
 		if (op != EXT2_EXTENT_NEXT_SIB) {
-#ifdef DEBUG
+#ifdef DEBUG_GET_EXTENT
 			printf("<<<< OP = %s\n",
 			       (op == EXT2_EXTENT_DOWN) ? "down" :
 			       ((op == EXT2_EXTENT_UP) ? "up" : "unknown"));
@@ -340,7 +347,7 @@ retry:
 				return EXT2_ET_EXTENT_NO_PREV;
 		}
 		if (op != EXT2_EXTENT_PREV_SIB) {
-#ifdef DEBUG
+#ifdef DEBUG_GET_EXTENT
 			printf("<<<< OP = %s\n",
 			       (op == EXT2_EXTENT_DOWN_AND_LAST) ? "down/last" :
 			       ((op == EXT2_EXTENT_UP) ? "up" : "unknown"));
@@ -354,7 +361,7 @@ retry:
 			op = EXT2_EXTENT_DOWN;
 		else
 			op = EXT2_EXTENT_LAST_SIB;
-#ifdef DEBUG
+#ifdef DEBUG_GET_EXTENT
 		printf("<<<< OP = %s\n",
 			   (op == EXT2_EXTENT_DOWN) ? "down" : "last_sib");
 #endif
@@ -367,9 +374,11 @@ retry:
 	case EXT2_EXTENT_ROOT:
 		handle->level = 0;
 		path = handle->path + handle->level;
+		/* fallthrough */
 	case EXT2_EXTENT_FIRST_SIB:
 		path->left = path->entries;
 		path->curr = 0;
+		/* fallthrough */
 	case EXT2_EXTENT_NEXT_SIB:
 		if (path->left <= 0)
 			return EXT2_ET_EXTENT_NO_NEXT;
@@ -431,7 +440,7 @@ retry:
 		    (handle->fs->io != handle->fs->image_io))
 			memset(newpath->buf, 0, handle->fs->blocksize);
 		else {
-			retval = io_channel_read_blk(handle->fs->io,
+			retval = io_channel_read_blk64(handle->fs->io,
 						     blk, 1, newpath->buf);
 			if (retval)
 				return retval;
@@ -441,8 +450,10 @@ retry:
 		eh = (struct ext3_extent_header *) newpath->buf;
 
 		retval = ext2fs_extent_header_verify(eh, handle->fs->blocksize);
-		if (retval)
+		if (retval) {
+			handle->level--;
 			return retval;
+		}
 
 		newpath->left = newpath->entries =
 			ext2fs_le16_to_cpu(eh->eh_entries);
@@ -467,7 +478,7 @@ retry:
 			if (handle->level < handle->max_depth)
 				path->visit_num = 1;
 		}
-#ifdef DEBUG
+#ifdef DEBUG_GET_EXTENT
 		printf("Down to level %d/%d, end_blk=%llu\n",
 			   handle->level, handle->max_depth,
 			   path->end_blk);
@@ -481,7 +492,7 @@ retry:
 		return EXT2_ET_NO_CURRENT_NODE;
 
 	extent->e_flags = 0;
-#ifdef DEBUG
+#ifdef DEBUG_GET_EXTENT
 	printf("(Left %d)\n", path->left);
 #endif
 
@@ -532,14 +543,14 @@ static errcode_t update_path(ext2_extent_handle_t handle)
 	struct ext3_extent_idx		*ix;
 
 	if (handle->level == 0) {
-		retval = ext2fs_write_inode_full(handle->fs, handle->ino,
-			   handle->inode, EXT2_INODE_SIZE(handle->fs->super));
+		retval = ext2fs_write_inode(handle->fs, handle->ino,
+					    handle->inode);
 	} else {
 		ix = handle->path[handle->level - 1].curr;
 		blk = ext2fs_le32_to_cpu(ix->ei_leaf) +
 			((__u64) ext2fs_le16_to_cpu(ix->ei_leaf_hi) << 32);
 
-		retval = io_channel_write_blk(handle->fs->io,
+		retval = io_channel_write_blk64(handle->fs->io,
 				      blk, 1, handle->path[handle->level].buf);
 	}
 	return retval;
@@ -614,7 +625,14 @@ static errcode_t extent_goto(ext2_extent_handle_t handle,
 		return EXT2_ET_OP_NOT_SUPPORTED;
 	}
 
+#ifdef DEBUG
+	printf("goto extent ino %u, level %d, %llu\n", handle->ino,
+	       leaf_level, blk);
+#endif
+
+#ifdef DEBUG_GOTO_EXTENTS
 	dbg_print_extent("root", &extent);
+#endif
 	while (1) {
 		if (handle->max_depth - handle->level == leaf_level) {
 			/* block is in this &extent */
@@ -644,7 +662,9 @@ static errcode_t extent_goto(ext2_extent_handle_t handle,
 		if (retval)
 			return retval;
 
+#ifdef DEBUG_GOTO_EXTENTS
 		dbg_print_extent("next", &extent);
+#endif
 		if (blk == extent.e_lblk)
 			goto go_down;
 		if (blk > extent.e_lblk)
@@ -655,7 +675,9 @@ static errcode_t extent_goto(ext2_extent_handle_t handle,
 		if (retval)
 			return retval;
 
+#ifdef DEBUG_GOTO_EXTENTS
 		dbg_print_extent("prev", &extent);
+#endif
 
 	go_down:
 		retval = ext2fs_extent_get(handle, EXT2_EXTENT_DOWN,
@@ -663,7 +685,9 @@ static errcode_t extent_goto(ext2_extent_handle_t handle,
 		if (retval)
 			return retval;
 
+#ifdef DEBUG_GOTO_EXTENTS
 		dbg_print_extent("down", &extent);
+#endif
 	}
 }
 
@@ -751,6 +775,11 @@ errcode_t ext2fs_extent_replace(ext2_extent_handle_t handle,
 	if (!path->curr)
 		return EXT2_ET_NO_CURRENT_NODE;
 
+#ifdef DEBUG
+	printf("extent replace: %u ", handle->ino);
+	dbg_print_extent(0, extent);
+#endif
+
 	if (handle->level == handle->max_depth) {
 		ex = path->curr;
 
@@ -787,7 +816,7 @@ errcode_t ext2fs_extent_replace(ext2_extent_handle_t handle,
 static errcode_t extent_node_split(ext2_extent_handle_t handle)
 {
 	errcode_t			retval = 0;
-	blk_t				new_node_pblk;
+	blk64_t				new_node_pblk;
 	blk64_t				new_node_start;
 	blk64_t				orig_lblk;
 	blk64_t				goal_blk = 0;
@@ -902,13 +931,14 @@ static errcode_t extent_node_split(ext2_extent_handle_t handle)
 		goal_blk = (group * handle->fs->super->s_blocks_per_group) +
 			handle->fs->super->s_first_data_block;
 	}
-	retval = ext2fs_alloc_block(handle->fs, (blk_t) goal_blk, block_buf,
+	retval = ext2fs_alloc_block2(handle->fs, goal_blk, block_buf,
 				    &new_node_pblk);
 	if (retval)
 		goto done;
 
 #ifdef DEBUG
-	printf("will copy to new node at block %lu\n", new_node_pblk);
+	printf("will copy to new node at block %lu\n",
+	       (unsigned long) new_node_pblk);
 #endif
 
 	/* Copy data into new block buffer */
@@ -929,7 +959,8 @@ static errcode_t extent_node_split(ext2_extent_handle_t handle)
 	new_node_start = ext2fs_le32_to_cpu(EXT_FIRST_INDEX(neweh)->ei_block);
 
 	/* ...and write the new node block out to disk. */
-	retval = io_channel_write_blk(handle->fs->io, new_node_pblk, 1, block_buf);
+	retval = io_channel_write_blk64(handle->fs->io, new_node_pblk, 1,
+					block_buf);
 
 	if (retval)
 		goto done;
@@ -996,17 +1027,17 @@ static errcode_t extent_node_split(ext2_extent_handle_t handle)
 		goto done;
 
 	/* new node hooked in, so update inode block count (do this here?) */
-	handle->inode->i_blocks += handle->fs->blocksize / 512;
-	retval = ext2fs_write_inode_full(handle->fs, handle->ino,
-		handle->inode, EXT2_INODE_SIZE(handle->fs->super));
+	handle->inode->i_blocks += (handle->fs->blocksize *
+				    EXT2FS_CLUSTER_RATIO(handle->fs)) / 512;
+	retval = ext2fs_write_inode(handle->fs, handle->ino,
+				    handle->inode);
 	if (retval)
 		goto done;
 
 done:
 	if (newpath)
 		ext2fs_free_mem(&newpath);
-	if (block_buf)
-		free(block_buf);
+	free(block_buf);
 
 	return retval;
 }
@@ -1027,6 +1058,11 @@ errcode_t ext2fs_extent_insert(ext2_extent_handle_t handle, int flags,
 	if (!handle->path)
 		return EXT2_ET_NO_CURRENT_NODE;
 
+#ifdef DEBUG
+	printf("extent insert: %u ", handle->ino);
+	dbg_print_extent(0, extent);
+#endif
+
 	path = handle->path + handle->level;
 
 	if (path->entries >= path->max_entries) {
@@ -1039,7 +1075,7 @@ errcode_t ext2fs_extent_insert(ext2_extent_handle_t handle, int flags,
 #endif
 			retval = extent_node_split(handle);
 			if (retval)
-				goto errout;
+				return retval;
 			path = handle->path + handle->level;
 		}
 	}
@@ -1109,15 +1145,23 @@ errcode_t ext2fs_extent_set_bmap(ext2_extent_handle_t handle,
 	int			mapped = 1; /* logical is mapped? */
 	int			orig_height;
 	int			extent_uninit = 0;
+	int			prev_uninit = 0;
+	int			next_uninit = 0;
 	int			new_uninit = 0;
 	int			max_len = EXT_INIT_MAX_LEN;
+	int			has_prev, has_next;
 	blk64_t			orig_lblk;
 	struct extent_path	*path;
-	struct ext2fs_extent	extent;
+	struct ext2fs_extent	extent, next_extent, prev_extent;
 	struct ext2fs_extent	newextent;
 	struct ext2_extent_info	info;
 
 	EXT2_CHECK_MAGIC(handle, EXT2_ET_MAGIC_EXTENT_HANDLE);
+
+#ifdef DEBUG
+	printf("set_bmap ino %u log %lld phys %lld flags %d\n",
+	       handle->ino, logical, physical, flags);
+#endif
 
 	if (!(handle->fs->flags & EXT2_FLAG_RW))
 		return EXT2_ET_RO_FILSYS;
@@ -1160,7 +1204,6 @@ errcode_t ext2fs_extent_set_bmap(ext2_extent_handle_t handle,
 	orig_height = info.max_depth - info.curr_level;
 	orig_lblk = extent.e_lblk;
 
-again:
 	/* go to the logical spot we want to (re/un)map */
 	retval = ext2fs_extent_goto(handle, logical);
 	if (retval) {
@@ -1181,12 +1224,44 @@ again:
 	/*
 	 * This may be the extent *before* the requested logical,
 	 * if it's currently unmapped.
+	 *
+	 * Get the previous and next leaf extents, if they are present.
 	 */
 	retval = ext2fs_extent_get(handle, EXT2_EXTENT_CURRENT, &extent);
 	if (retval)
 		goto done;
 	if (extent.e_flags & EXT2_EXTENT_FLAGS_UNINIT)
 		extent_uninit = 1;
+	retval = ext2fs_extent_get(handle, EXT2_EXTENT_NEXT_LEAF, &next_extent);
+	if (retval) {
+		has_next = 0;
+		if (retval != EXT2_ET_EXTENT_NO_NEXT)
+			goto done;
+	} else {
+		dbg_print_extent("set_bmap: next_extent",
+				 &next_extent);
+		has_next = 1;
+		if (next_extent.e_flags & EXT2_EXTENT_FLAGS_UNINIT)
+			next_uninit = 1;
+	}
+	retval = ext2fs_extent_goto(handle, logical);
+	if (retval && retval != EXT2_ET_EXTENT_NOT_FOUND)
+		goto done;
+	retval = ext2fs_extent_get(handle, EXT2_EXTENT_PREV_LEAF, &prev_extent);
+	if (retval) {
+		has_prev = 0;
+		if (retval != EXT2_ET_EXTENT_NO_PREV)
+			goto done;
+	} else {
+		has_prev = 1;
+		dbg_print_extent("set_bmap: prev_extent",
+				 &prev_extent);
+		if (prev_extent.e_flags & EXT2_EXTENT_FLAGS_UNINIT)
+			prev_uninit = 1;
+	}
+	retval = ext2fs_extent_goto(handle, logical);
+	if (retval && retval != EXT2_ET_EXTENT_NOT_FOUND)
+		goto done;
 
 	/* check if already pointing to the requested physical */
 	if (mapped && (new_uninit == extent_uninit) &&
@@ -1207,6 +1282,28 @@ again:
 		    ((int) extent.e_len < max_len-1)) {
 			extent.e_len++;
 			retval = ext2fs_extent_replace(handle, 0, &extent);
+		} else if ((logical == extent.e_lblk - 1) &&
+			   (physical == extent.e_pblk - 1) &&
+			   (new_uninit == extent_uninit) &&
+			   ((int) extent.e_len < max_len - 1)) {
+			extent.e_len++;
+			extent.e_lblk--;
+			extent.e_pblk--;
+			retval = ext2fs_extent_replace(handle, 0, &extent);
+		} else if (has_next &&
+			   (logical == next_extent.e_lblk - 1) &&
+			   (physical == next_extent.e_pblk - 1) &&
+			   (new_uninit == next_uninit) &&
+			   ((int) next_extent.e_len < max_len - 1)) {
+			retval = ext2fs_extent_get(handle,
+						   EXT2_EXTENT_NEXT_LEAF,
+						   &next_extent);
+			if (retval)
+				goto done;
+			next_extent.e_len++;
+			next_extent.e_lblk--;
+			next_extent.e_pblk--;
+			retval = ext2fs_extent_replace(handle, 0, &next_extent);
 		} else if (logical < extent.e_lblk)
 			retval = ext2fs_extent_insert(handle, 0, &newextent);
 		else
@@ -1238,38 +1335,75 @@ again:
 #ifdef DEBUG
 		printf("(re/un)mapping last block in extent\n");
 #endif
+		if (physical) {
+			if (has_next &&
+			    (logical == (next_extent.e_lblk - 1)) &&
+			    (physical == (next_extent.e_pblk - 1)) &&
+			    (new_uninit == next_uninit) &&
+			    ((int) next_extent.e_len < max_len - 1)) {
+				retval = ext2fs_extent_get(handle,
+					EXT2_EXTENT_NEXT_LEAF, &next_extent);
+				if (retval)
+					goto done;
+				next_extent.e_len++;
+				next_extent.e_lblk--;
+				next_extent.e_pblk--;
+				retval = ext2fs_extent_replace(handle, 0,
+							       &next_extent);
+				if (retval)
+					goto done;
+			} else
+				retval = ext2fs_extent_insert(handle,
+				      EXT2_EXTENT_INSERT_AFTER, &newextent);
+			if (retval)
+				goto done;
+			/* Now pointing at inserted extent; move back to prev */
+			retval = ext2fs_extent_get(handle,
+						   EXT2_EXTENT_PREV_LEAF,
+						   &extent);
+			if (retval)
+				goto done;
+		}
 		extent.e_len--;
 		retval = ext2fs_extent_replace(handle, 0, &extent);
 		if (retval)
 			goto done;
-		if (physical) {
-			retval = ext2fs_extent_insert(handle,
-					EXT2_EXTENT_INSERT_AFTER, &newextent);
-			if (retval)
-				goto done;
-		}
 	} else if (logical == extent.e_lblk) {
 #ifdef DEBUG
 		printf("(re/un)mapping first block in extent\n");
 #endif
+		if (physical) {
+			if (has_prev &&
+			    (logical == (prev_extent.e_lblk +
+					 prev_extent.e_len)) &&
+			    (physical == (prev_extent.e_pblk +
+					  prev_extent.e_len)) &&
+			    (new_uninit == prev_uninit) &&
+			    ((int) prev_extent.e_len < max_len-1)) {
+				retval = ext2fs_extent_get(handle, 
+					EXT2_EXTENT_PREV_LEAF, &prev_extent);
+				if (retval)
+					goto done;
+				prev_extent.e_len++;
+				retval = ext2fs_extent_replace(handle, 0,
+							       &prev_extent);
+			} else
+				retval = ext2fs_extent_insert(handle,
+							      0, &newextent);
+			if (retval)
+				goto done;
+			retval = ext2fs_extent_get(handle,
+						   EXT2_EXTENT_NEXT_LEAF,
+						   &extent);
+			if (retval)
+				goto done;
+		}
 		extent.e_pblk++;
 		extent.e_lblk++;
 		extent.e_len--;
 		retval = ext2fs_extent_replace(handle, 0, &extent);
 		if (retval)
 			goto done;
-		if (physical) {
-			/*
-			 * We've removed the old block, now rely on
-			 * the optimized hueristics for adding a new
-			 * mapping with appropriate merging if necessary.
-			 */
-			goto again;
-		} else {
-			retval = ext2fs_extent_fix_parents(handle);
-			if (retval)
-				goto done;
-		}
 	} else {
 		__u32	orig_length;
 
@@ -1326,6 +1460,19 @@ errcode_t ext2fs_extent_delete(ext2_extent_handle_t handle, int flags)
 	if (!handle->path)
 		return EXT2_ET_NO_CURRENT_NODE;
 
+#ifdef DEBUG
+	{
+		struct ext2fs_extent	extent;
+
+		retval = ext2fs_extent_get(handle, EXT2_EXTENT_CURRENT,
+					   &extent);
+		if (retval == 0) {
+			printf("extent delete %u ", handle->ino);
+			dbg_print_extent(0, &extent);
+		}
+	}
+#endif
+
 	path = handle->path + handle->level;
 	if (!path->curr)
 		return EXT2_ET_NO_CURRENT_NODE;
@@ -1355,11 +1502,13 @@ errcode_t ext2fs_extent_delete(ext2_extent_handle_t handle, int flags)
 				return retval;
 
 			retval = ext2fs_extent_delete(handle, flags);
-			handle->inode->i_blocks -= handle->fs->blocksize / 512;
-			retval = ext2fs_write_inode_full(handle->fs,
-					handle->ino, handle->inode,
-					EXT2_INODE_SIZE(handle->fs->super));
-			ext2fs_block_alloc_stats(handle->fs, extent.e_pblk, -1);
+			handle->inode->i_blocks -=
+				(handle->fs->blocksize *
+				 EXT2FS_CLUSTER_RATIO(handle->fs)) / 512;
+			retval = ext2fs_write_inode(handle->fs, handle->ino,
+						    handle->inode);
+			ext2fs_block_alloc_stats2(handle->fs,
+						  extent.e_pblk, -1);
 		}
 	} else {
 		eh = (struct ext3_extent_header *) path->buf;
@@ -1832,8 +1981,8 @@ void do_goto_block(int argc, char **argv)
 	struct ext2fs_extent	extent;
 	errcode_t		retval;
 	int			op = EXT2_EXTENT_NEXT_LEAF;
-	blk_t			blk;
-	int			level = 0;
+	blk64_t			blk;
+	int			level = 0, err;
 
 	if (common_extent_args_process(argc, argv, 2, 3, "goto_block",
 				       "block [level]", 0))
@@ -1842,15 +1991,18 @@ void do_goto_block(int argc, char **argv)
 	if (strtoblk(argv[0], argv[1], &blk))
 		return;
 
-	if (argc == 3)
-		if (strtoblk(argv[0], argv[2], &level))
+	if (argc == 3) {
+		level = parse_ulong(argv[2], argv[0], "level", &err);
+		if (err)
 			return;
+	}
 
 	retval = extent_goto(current_handle, level, (blk64_t) blk);
 
 	if (retval) {
-		com_err(argv[0], retval, "while trying to go to block %lu, level %d",
-			blk, level);
+		com_err(argv[0], retval,
+			"while trying to go to block %llu, level %d",
+			(unsigned long long) blk, level);
 		return;
 	}
 

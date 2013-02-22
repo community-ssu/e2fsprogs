@@ -10,6 +10,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -146,8 +147,7 @@ void blkid_put_cache(blkid_cache cache)
 		}
 		blkid_free_tag(tag);
 	}
-	if (cache->bic_filename)
-		free(cache->bic_filename);
+	free(cache->bic_filename);
 
 	free(cache);
 }

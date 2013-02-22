@@ -28,6 +28,7 @@
  * Version 1.1, modified 2/27/1999
  */
 
+#include "config.h"
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
 #endif
@@ -66,7 +67,7 @@ int argv_parse(char *in_buf, int *ret_argc, char ***ret_argv)
 				new_argv = realloc(argv,
 						  (max_argc+1)*sizeof(char *));
 				if (!new_argv) {
-					if (argv) free(argv);
+					free(argv);
 					free(buf);
 					return -1;
 				}
@@ -126,8 +127,7 @@ int argv_parse(char *in_buf, int *ret_argc, char ***ret_argv)
 
 void argv_free(char **argv)
 {
-	if (*argv)
-		free(*argv);
+	free(*argv);
 	free(argv);
 }
 

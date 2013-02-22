@@ -4,10 +4,14 @@
  * Copyright (c) 1997 by Theodore Ts'o.
  *
  * Copyright (c) 1997 Mark Habersack
- * This file may be distributed under the terms of the GNU Public License.
  *
+ * %Begin-Header%
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
+ * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <bios.h>
 #include <string.h>
@@ -278,8 +282,8 @@ static errcode_t dos_open(const char *dev, int flags, io_channel *channel)
   if(!HW_OK())
   {
     _dio_error = ERR_HARDWARE;
-    if (part)
-	    free(part);
+    free(part->dev);
+    free(part);
     return EFAULT;
   }
 
@@ -298,8 +302,8 @@ static errcode_t dos_open(const char *dev, int flags, io_channel *channel)
   if(!HW_OK())
   {
     _dio_error = ERR_HARDWARE;
-    if (part)
-	    free(part);
+    free(part->dev);
+    free(part);
     return EFAULT;
   }
 
@@ -310,8 +314,8 @@ static errcode_t dos_open(const char *dev, int flags, io_channel *channel)
   {
     _dio_error = part->pno == 0xFE ? ERR_EMPTYPART :
                  part->pno == 0xFD ? ERR_LINUXSWAP : ERR_NOTEXT2FS;
-    if (part)
-	    free(part);
+    free(part->dev);
+    free(part);
     return ENODEV;
   }
 
@@ -352,10 +356,8 @@ static errcode_t dos_open(const char *dev, int flags, io_channel *channel)
 
 static errcode_t dos_close(io_channel channel)
 {
-	if (channel->name)
-		free(channel->name);
-	if (channel)
-		free(channel);
+	free(channel->name);
+	free(channel);
 
 	return 0;
 }

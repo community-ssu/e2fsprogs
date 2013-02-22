@@ -15,14 +15,14 @@
 #include "e2fsck.h"
 
 struct buffer_head {
-	char		b_data[8192];
 	e2fsck_t	b_ctx;
 	io_channel 	b_io;
 	int	 	b_size;
-	blk_t	 	b_blocknr;
+	unsigned long long b_blocknr;
 	int	 	b_dirty;
 	int	 	b_uptodate;
 	int	 	b_err;
+	char		b_data[1024];
 };
 
 struct inode {
@@ -62,6 +62,7 @@ typedef struct {
 #define cond_resched()	do { } while (0)
 
 typedef unsigned int __be32;
+typedef __u64 __be64;
 
 #define __init
 
@@ -120,8 +121,8 @@ _INLINE_ size_t journal_tag_bytes(journal_t *journal)
 /*
  * Kernel compatibility functions are defined in journal.c
  */
-int journal_bmap(journal_t *journal, blk_t block, unsigned long *phys);
-struct buffer_head *getblk(kdev_t ctx, blk_t blocknr, int blocksize);
+int journal_bmap(journal_t *journal, blk64_t block, unsigned long long *phys);
+struct buffer_head *getblk(kdev_t ctx, blk64_t blocknr, int blocksize);
 void sync_blockdev(kdev_t kdev);
 void ll_rw_block(int rw, int dummy, struct buffer_head *bh[]);
 void mark_buffer_dirty(struct buffer_head *bh);

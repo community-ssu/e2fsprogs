@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -77,7 +78,7 @@ static char *parse_word(char **buf)
 static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 				   int *mount_flags)
 {
-#ifdef HAVE_MNTENT_H
+#ifdef HAVE_SETMNTENT
 	struct stat	st_buf;
 	errcode_t	retval = 0;
 	dev_t		file_dev=0, file_rdev=0;
@@ -86,9 +87,6 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 	char		buf[1024], *device = 0, *mnt_dir = 0, *cp;
 
 	*mount_flags = 0;
-	if ((f = fopen(mtab_file, "r")) == NULL)
-		return errno;
-
 	if ((f = setmntent (mtab_file, "r")) == NULL)
 		return errno;
 	if (stat(file, &st_buf) == 0) {
@@ -180,7 +178,7 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 errout:
 	endmntent (f);
 	return retval;
-#else /* !HAVE_MNTENT_H */
+#else /* !HAVE_SETMNTENT */
 	return 0;
 #endif /* HAVE_MNTENT_H */
 }

@@ -14,6 +14,7 @@
  */
 
 #ifndef __KERNEL__
+#include "config.h"
 #include "jfs_user.h"
 #else
 #include <linux/time.h>
@@ -70,7 +71,7 @@ static int do_readahead(journal_t *journal, unsigned int start)
 {
 	int err;
 	unsigned int max, nbufs, next;
-	unsigned long blocknr;
+	unsigned long long blocknr;
 	struct buffer_head *bh;
 
 	struct buffer_head * bufs[MAXBUF];
@@ -132,7 +133,7 @@ static int jread(struct buffer_head **bhp, journal_t *journal,
 		 unsigned int offset)
 {
 	int err;
-	unsigned long blocknr;
+	unsigned long long blocknr;
 	struct buffer_head *bh;
 
 	*bhp = NULL;
@@ -308,7 +309,6 @@ int journal_skip_recovery(journal_t *journal)
 	return err;
 }
 
-#if 0
 static inline unsigned long long read_tag_block(int tag_bytes, journal_block_tag_t *tag)
 {
 	unsigned long long block = be32_to_cpu(tag->t_blocknr);
@@ -316,17 +316,16 @@ static inline unsigned long long read_tag_block(int tag_bytes, journal_block_tag
 		block |= (__u64)be32_to_cpu(tag->t_blocknr_high) << 32;
 	return block;
 }
-#endif
 
 /*
  * calc_chksums calculates the checksums for the blocks described in the
  * descriptor block.
  */
 static int calc_chksums(journal_t *journal, struct buffer_head *bh,
-			unsigned long *next_log_block, __u32 *crc32_sum)
+			unsigned long long *next_log_block, __u32 *crc32_sum)
 {
 	int i, num_blks, err;
-	unsigned long io_block;
+	unsigned long long io_block;
 	struct buffer_head *obh;
 
 	num_blks = count_tags(journal, bh);
@@ -339,7 +338,7 @@ static int calc_chksums(journal_t *journal, struct buffer_head *bh,
 		err = jread(&obh, journal, io_block);
 		if (err) {
 			printk(KERN_ERR "JBD: IO error %d recovering block "
-				"%lu in log\n", err, io_block);
+				"%llu in log\n", err, io_block);
 			return 1;
 		} else {
 			*crc32_sum = crc32_be(*crc32_sum, (void *)obh->b_data,
@@ -354,7 +353,7 @@ static int do_one_pass(journal_t *journal,
 			struct recovery_info *info, enum passtype pass)
 {
 	unsigned int		first_commit_ID, next_commit_ID;
-	unsigned long		next_log_block;
+	unsigned long long	next_log_block;
 	int			err, success = 0;
 	journal_superblock_t *	sb;
 	journal_header_t *	tmp;
@@ -484,7 +483,7 @@ static int do_one_pass(journal_t *journal,
 			tagp = &bh->b_data[sizeof(journal_header_t)];
 			while ((tagp - bh->b_data + tag_bytes)
 			       <= journal->j_blocksize) {
-				unsigned long io_block;
+				unsigned long long io_block;
 
 				tag = (journal_block_tag_t *) tagp;
 				flags = be32_to_cpu(tag->t_flags);
@@ -498,13 +497,14 @@ static int do_one_pass(journal_t *journal,
 					success = err;
 					printk (KERN_ERR
 						"JBD: IO error %d recovering "
-						"block %ld in log\n",
+						"block %llu in log\n",
 						err, io_block);
 				} else {
-					unsigned long blocknr;
+					unsigned long long blocknr;
 
 					J_ASSERT(obh != NULL);
-					blocknr = be32_to_cpu(tag->t_blocknr);
+					blocknr = read_tag_block(tag_bytes,
+								 tag);
 
 					/* If the block has been
 					 * revoked, then we're all done
@@ -536,8 +536,10 @@ static int do_one_pass(journal_t *journal,
 					memcpy(nbh->b_data, obh->b_data,
 							journal->j_blocksize);
 					if (flags & JFS_FLAG_ESCAPE) {
-						*((__be32 *)nbh->b_data) =
-						cpu_to_be32(JFS_MAGIC_NUMBER);
+						journal_header_t *header;
+
+						header = (journal_header_t *) &nbh->b_data[0];
+						header->h_magic = cpu_to_be32(JFS_MAGIC_NUMBER);
 					}
 
 					BUFFER_TRACE(nbh, "marking dirty");
@@ -720,17 +722,26 @@ static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
 {
 	journal_revoke_header_t *header;
 	int offset, max;
+	int record_len = 4;
 
 	header = (journal_revoke_header_t *) bh->b_data;
 	offset = sizeof(journal_revoke_header_t);
 	max = be32_to_cpu(header->r_count);
 
+	if (JFS_HAS_INCOMPAT_FEATURE(journal, JFS_FEATURE_INCOMPAT_64BIT))
+		record_len = 8;
+
 	while (offset < max) {
-		unsigned long blocknr;
+		unsigned long long blocknr;
 		int err;
 
-		blocknr = be32_to_cpu(* ((__be32 *) (bh->b_data+offset)));
-		offset += 4;
+		if (record_len == 4)
+			blocknr = ext2fs_be32_to_cpu(*((__be32 *)(bh->b_data +
+								  offset)));
+		else
+			blocknr = ext2fs_be64_to_cpu(*((__be64 *)(bh->b_data +
+								  offset)));
+		offset += record_len;
 		err = journal_set_revoke(journal, blocknr, sequence);
 		if (err)
 			return err;

@@ -5,11 +5,12 @@
  * Copyright (C) 1993, 1994, 1995, 1996 Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -76,3 +77,42 @@ void ext2fs_warn_bitmap(errcode_t errcode, unsigned long arg,
 		com_err(0, errcode, "#%lu", arg);
 #endif
 }
+
+/*
+ * C-only 64 bit ops.
+ */
+
+int ext2fs_set_bit64(__u64 nr, void * addr)
+{
+	int		mask, retval;
+	unsigned char	*ADDR = (unsigned char *) addr;
+
+	ADDR += nr >> 3;
+	mask = 1 << (nr & 0x07);
+	retval = mask & *ADDR;
+	*ADDR |= mask;
+	return retval;
+}
+
+int ext2fs_clear_bit64(__u64 nr, void * addr)
+{
+	int		mask, retval;
+	unsigned char	*ADDR = (unsigned char *) addr;
+
+	ADDR += nr >> 3;
+	mask = 1 << (nr & 0x07);
+	retval = mask & *ADDR;
+	*ADDR &= ~mask;
+	return retval;
+}
+
+int ext2fs_test_bit64(__u64 nr, const void * addr)
+{
+	int			mask;
+	const unsigned char	*ADDR = (const unsigned char *) addr;
+
+	ADDR += nr >> 3;
+	mask = 1 << (nr & 0x07);
+	return (mask & *ADDR);
+}
+

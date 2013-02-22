@@ -1,14 +1,14 @@
 \input texinfo    @c -*-texinfo-*-
 @c %**start of header
 @setfilename libext2fs.info
-@settitle The EXT2FS Library (version 1.41.3)
+@settitle The EXT2FS Library (version 1.42.5)
 @synindex tp fn
 @comment %**end of header
 
 @ifinfo
 @dircategory Development
 @direntry
-* libext2fs: (libext2fs.info).                  The EXT2FS library.
+* libext2fs: (libext2fs).                  The EXT2FS library.
 @end direntry
 @end ifinfo
 
@@ -29,7 +29,8 @@
 This file documents the ext2fs library, a library for manipulating the
 ext2 filesystem.
 
-Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005 Theodore Ts'o
+Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+2006, 2007, 2008, 2009, 2010, 2011, 2012 by Theodore Ts'o
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -59,8 +60,8 @@ by the author.
 
 @title The EXT2FS Library
 @subtitle The EXT2FS Library
-@subtitle Version 1.41.3
-@subtitle October 2008
+@subtitle Version 1.42.5
+@subtitle July 2012
 
 @author by Theodore Ts'o
 
@@ -76,7 +77,7 @@ by the author.
 @page
 @vskip 0pt plus 1filll
 Copyright @copyright{} 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-2005 Theodore Ts'o
+2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Theodore Ts'o
 
 @sp 2
 
@@ -101,7 +102,7 @@ by the Foundation.
 
 @top The EXT2FS Library
 
-This manual documents the EXT2FS Library, version 1.41.3
+This manual documents the EXT2FS Library, version 1.42.5.
 
 @end ifinfo
 

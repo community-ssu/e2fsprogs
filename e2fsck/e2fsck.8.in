@@ -4,7 +4,7 @@
 .\" 
 .TH E2FSCK 8 "@E2FSPROGS_MONTH@ @E2FSPROGS_YEAR@" "E2fsprogs version @E2FSPROGS_VERSION@"
 .SH NAME
-e2fsck \- check a Linux ext2/ext3 file system
+e2fsck \- check a Linux ext2/ext3/ext4 file system
 .SH SYNOPSIS
 .B e2fsck
 [
@@ -37,17 +37,13 @@ e2fsck \- check a Linux ext2/ext3 file system
 .I device
 .SH DESCRIPTION
 .B e2fsck
-is used to check a Linux second extended file system (ext2fs).  
-.B E2fsck
-also 
-supports ext2 filesystems containing a journal, which are
-also sometimes known as ext3 filesystems, by first applying the journal 
-to the filesystem before continuing with normal 
+is used to check the ext2/ext3/ext4 family of file systems.   
+For ext3 and ext4 filesystems that use a journal, if the system has been
+shut down uncleanly without any errors, normally, after replaying the
+committed transactions  in the journal, the file system should be
+marked as clean.   Hence, for filesystems that use journalling,
 .B e2fsck
-processing.  After the journal has been applied, a filesystem will
-normally be marked as clean.  Hence, for ext3 filesystems, 
-.B e2fsck
-will normally run the journal and exit, unless its superblock
+will normally replay the journal and exit, unless its superblock
 indicates that further checking is required.
 .PP
 .I device
@@ -190,9 +186,27 @@ Set the version of the extended attribute blocks which
 will require while checking the filesystem.  The version number may 
 be 1 or 2.  The default extended attribute version format is 2.
 .TP
+.BI journal_only
+Only replay the journal if required, but do not perform any further checks
+or repairs.
+.TP
 .BI fragcheck
 During pass 1, print a detailed report of any discontiguous blocks for
 files in the filesystem.
+.TP
+.BI discard
+Attempt to discard free blocks and unused inode blocks after the full
+filesystem check (discarding blocks is useful on solid state devices and sparse
+/ thin-provisioned storage). Note that discard is done in pass 5 AFTER the
+filesystem has been fully checked and only if it does not contain recognizable
+errors. However there might be cases where
+.B e2fsck
+does not fully recognize a problem and hence in this case this
+option may prevent you from further manual data recovery.
+.TP
+.BI nodiscard
+Do not attempt to discard free blocks and unused inode blocks. This option is
+exactly the opposite of discard option. This is set as default.
 .RE
 .TP
 .B \-f
@@ -246,16 +260,7 @@ in the file are added to the bad blocks list.)
 Open the filesystem read-only, and assume an answer of `no' to all
 questions.  Allows
 .B e2fsck
-to be used non-interactively.  (Note: if the 
-.BR \-c ,
-.BR \-l ,
-or
-.B \-L
-options are specified in addition to the 
-.B \-n
-option, then the filesystem will be opened read-write, to permit the
-bad-blocks list to be updated.  However, no other changes will be made
-to the filesystem.)  This option
+to be used non-interactively.  This option
 may not be specified at the same time as the 
 .B \-p
 or

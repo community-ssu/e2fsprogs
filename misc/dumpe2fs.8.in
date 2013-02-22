@@ -4,7 +4,7 @@
 .\" 
 .TH DUMPE2FS 8 "@E2FSPROGS_MONTH@ @E2FSPROGS_YEAR@" "E2fsprogs version @E2FSPROGS_VERSION@"
 .SH NAME
-dumpe2fs \- dump ext2/ext3 filesystem information
+dumpe2fs \- dump ext2/ext3/ext4 filesystem information
 .SH SYNOPSIS
 .B dumpe2fs
 [
@@ -23,10 +23,9 @@ prints the super block and blocks group information for the filesystem
 present on
 .I device.
 .PP
-.B dumpe2fs
-is similar to Berkeley's
-.B dumpfs
-program for the BSD Fast File System.
+.B Note:
+When used with a mounted filesystem, the printed
+information may be old or inconsistent.
 .SH OPTIONS
 .TP
 .B \-b

@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -170,7 +171,6 @@ static void pretty_print_dev(blkid_dev dev)
 	blkid_tag_iterate	iter;
 	const char		*type, *value, *devname;
 	const char		*uuid = "", *fs_type = "", *label = "";
-	char			*cp;
 	int			len, mount_flags;
 	char			mtpt[80];
 	errcode_t		retval;
@@ -420,10 +420,8 @@ int main(int argc, char **argv)
 	}
 
 exit:
-	if (search_type)
-		free(search_type);
-	if (search_value)
-		free(search_value);
+	free(search_type);
+	free(search_value);
 	blkid_put_cache(cache);
 	return err;
 }

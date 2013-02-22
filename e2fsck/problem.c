@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -26,16 +27,16 @@
 #define PROMPT_RELOCATE	3
 #define PROMPT_ALLOCATE 4
 #define PROMPT_EXPAND	5
-#define PROMPT_CONNECT 	6
+#define PROMPT_CONNECT	6
 #define PROMPT_CREATE	7
 #define PROMPT_SALVAGE	8
 #define PROMPT_TRUNCATE	9
 #define PROMPT_CLEAR_INODE 10
-#define PROMPT_ABORT 	11
-#define PROMPT_SPLIT 	12
+#define PROMPT_ABORT	11
+#define PROMPT_SPLIT	12
 #define PROMPT_CONTINUE	13
 #define PROMPT_CLONE	14
-#define PROMPT_DELETE 	15
+#define PROMPT_DELETE	15
 #define PROMPT_SUPPRESS 16
 #define PROMPT_UNLINK	17
 #define PROMPT_CLEAR_HTREE 18
@@ -184,7 +185,7 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Journal inode is invalid */
 	{ PR_0_JOURNAL_BAD_INODE,
-	  N_("@S has an @n ext3 @j (@i %i).\n"),
+	  N_("@S has an @n @j (@i %i).\n"),
 	  PROMPT_CLEAR, PR_PREEN_OK },
 
 	/* The external journal has (unsupported) multiple filesystems */
@@ -209,7 +210,7 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Journal has an unknown superblock type */
 	{ PR_0_JOURNAL_UNSUPP_SUPER,
-	  N_("Ext3 @j @S is unknown type %N (unsupported).\n"
+	  N_("@f @j @S is unknown type %N (unsupported).\n"
 	     "It is likely that your copy of e2fsck is old and/or doesn't "
 	     "support this @j format.\n"
 	     "It is also possible the @j @S is corrupt.\n"),
@@ -217,22 +218,22 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Journal superblock is corrupt */
 	{ PR_0_JOURNAL_BAD_SUPER,
-	  N_("Ext3 @j @S is corrupt.\n"),
+	  N_("@j @S is corrupt.\n"),
 	  PROMPT_FIX, PR_PREEN_OK },
 
-	/* Superblock flag should be cleared */
+	/* Superblock has_journal flag is clear but has a journal */
 	{ PR_0_JOURNAL_HAS_JOURNAL,
-	  N_("@S doesn't have has_@j flag, but has ext3 @j %s.\n"),
+	  N_("@S has_@j flag is clear, but a @j %s is present.\n"),
 	  PROMPT_CLEAR, PR_PREEN_OK },
 
-	/* Superblock flag is incorrect */
+	/* Superblock needs_recovery flag is set but not journal is present */
 	{ PR_0_JOURNAL_RECOVER_SET,
-	  N_("@S has ext3 needs_recovery flag set, but no @j.\n"),
+	  N_("@S needs_recovery flag is set, but no @j is present.\n"),
 	  PROMPT_CLEAR, PR_PREEN_OK },
 
-	/* Journal has data, but recovery flag is clear */
+	/* Superblock needs_recovery flag is set, but journal has data */
 	{ PR_0_JOURNAL_RECOVERY_CLEAR,
-	  N_("ext3 recovery flag is clear, but @j has data.\n"),
+	  N_("@S needs_recovery flag is clear, but @j has data.\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Ask if we should clear the journal */
@@ -240,15 +241,10 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Clear @j"),
 	  PROMPT_NULL, PR_PREEN_NOMSG },
 
-	/* Ask if we should run the journal anyway */
-	{ PR_0_JOURNAL_RUN,
-	  N_("Run @j anyway"),
-	  PROMPT_NULL, 0 },
-
-	/* Run the journal by default */
-	{ PR_0_JOURNAL_RUN_DEFAULT,
-	  N_("Recovery flag not set in backup @S, so running @j anyway.\n"),
-	  PROMPT_NONE, 0 },
+	/* Filesystem revision is 0, but feature flags are set */
+	{ PR_0_FS_REV_LEVEL,
+	  N_("@f has feature flag(s) set, but is a revision 0 @f.  "),
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
 
 	/* Clearing orphan inode */
 	{ PR_0_ORPHAN_CLEAR_INODE,
@@ -257,12 +253,12 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Illegal block found in orphaned inode */
 	{ PR_0_ORPHAN_ILLEGAL_BLOCK_NUM,
-	   N_("@I @b #%B (%b) found in @o @i %i.\n"),
+	   N_("@I %B (%b) found in @o @i %i.\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Already cleared block found in orphaned inode */
 	{ PR_0_ORPHAN_ALREADY_CLEARED_BLOCK,
-	   N_("Already cleared @b #%B (%b) found in @o @i %i.\n"),
+	   N_("Already cleared %B (%b) found in @o @i %i.\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Illegal orphan inode in superblock */
@@ -275,19 +271,14 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("@I @i %i in @o @i list.\n"),
 	  PROMPT_NONE, 0 },
 
-	/* Filesystem revision is 0, but feature flags are set */
-	{ PR_0_FS_REV_LEVEL,
-	  N_("@f has feature flag(s) set, but is a revision 0 @f.  "),
-	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
-
 	/* Journal superblock has an unknown read-only feature flag set */
 	{ PR_0_JOURNAL_UNSUPP_ROCOMPAT,
-	  N_("Ext3 @j @S has an unknown read-only feature flag set.\n"),
+	  N_("@j @S has an unknown read-only feature flag set.\n"),
 	  PROMPT_ABORT, 0 },
 
 	/* Journal superblock has an unknown incompatible feature flag set */
 	{ PR_0_JOURNAL_UNSUPP_INCOMPAT,
-	  N_("Ext3 @j @S has an unknown incompatible feature flag set.\n"),
+	  N_("@j @S has an unknown incompatible feature flag set.\n"),
 	  PROMPT_ABORT, 0 },
 
 	/* Journal has unsupported version number */
@@ -309,6 +300,16 @@ static struct e2fsck_problem problem_table[] = {
 	{ PR_0_CLEAR_V2_JOURNAL,
 	  N_("Found @n V2 @j @S fields (from V1 @j).\n"
 	     "Clearing fields beyond the V1 @j @S...\n\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Ask if we should run the journal anyway */
+	{ PR_0_JOURNAL_RUN,
+	  N_("Run @j anyway"),
+	  PROMPT_NULL, 0 },
+
+	/* Run the journal by default */
+	{ PR_0_JOURNAL_RUN_DEFAULT,
+	  N_("Recovery flag not set in backup @S, so running @j anyway.\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Backup journal inode blocks */
@@ -334,13 +335,13 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Last mount time is in the future */
 	{ PR_0_FUTURE_SB_LAST_MOUNT,
-	  N_("@S last mount time is in the future.  "),
-	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
+	  N_("@S last mount time (%t,\n\tnow = %T) is in the future.\n"),
+	  PROMPT_FIX, PR_NO_OK },
 
 	/* Last write time is in the future */
 	{ PR_0_FUTURE_SB_LAST_WRITE,
-	  N_("@S last write time is in the future.  "),
-	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
+	  N_("@S last write time (%t,\n\tnow = %T) is in the future.\n"),
+	  PROMPT_FIX, PR_NO_OK },
 
 	{ PR_0_EXTERNAL_JOURNAL_HINT,
 	  N_("@S hint for external superblock @s %X.  "),
@@ -353,17 +354,12 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* group descriptor N checksum is invalid. */
 	{ PR_0_GDT_CSUM,
-	  N_("@g descriptor %g checksum is invalid.  "),
-	     PROMPT_FIX, PR_PREEN_OK },
+	  N_("@g descriptor %g checksum is %04x, should be %04y.  "),
+	     PROMPT_FIX, PR_LATCH_BG_CHECKSUM },
 
 	/* group descriptor N marked uninitialized without feature set. */
 	{ PR_0_GDT_UNINIT,
 	  N_("@g descriptor %g marked uninitialized without feature set.\n"),
-	     PROMPT_FIX, PR_PREEN_OK },
-
-	/* group N block bitmap uninitialized but inode bitmap in use. */
-	{ PR_0_BB_UNINIT_IB_INIT,
-	  N_("@g %g @b @B uninitialized but @i @B in use.\n"),
 	     PROMPT_FIX, PR_PREEN_OK },
 
 	/* Group descriptor N has invalid unused inodes count. */
@@ -384,6 +380,58 @@ static struct e2fsck_problem problem_table[] = {
 	{ PR_0_CLEAR_TESTFS_FLAG,
 	  N_("The test_fs flag is set (and ext4 is available).  "),
 	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Last mount time is in the future (fudged) */
+	{ PR_0_FUTURE_SB_LAST_MOUNT_FUDGED,
+	  N_("@S last mount time is in the future.\n\t(by less than a day, "
+	     "probably due to the hardware clock being incorrectly set)  "),
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
+
+	/* Last write time is in the future (fudged) */
+	{ PR_0_FUTURE_SB_LAST_WRITE_FUDGED,
+	  N_("@S last write time is in the future.\n\t(by less than a day, "
+	     "probably due to the hardware clock being incorrectly set).  "),
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
+
+	/* Block group checksum (latch question) is invalid. */
+	{ PR_0_GDT_CSUM_LATCH,
+	  N_("One or more @b @g descriptor checksums are invalid.  "),
+	     PROMPT_FIX, PR_PREEN_OK },
+
+	/* Free inodes count wrong */
+	{ PR_0_FREE_INODE_COUNT,
+	  N_("Setting free @is count to %j (was %i)\n"),
+	  PROMPT_NONE, PR_PREEN_NOMSG },
+
+	/* Free blocks count wrong */
+	{ PR_0_FREE_BLOCK_COUNT,
+	  N_("Setting free @bs count to %c (was %b)\n"),
+	  PROMPT_NONE, PR_PREEN_NOMSG },
+
+	/* Making quota file hidden */
+	{ PR_0_HIDE_QUOTA,
+	  N_("Making @q @i %i (%Q) hidden.\n"),
+	  PROMPT_NONE, PR_PREEN_OK },
+
+	/* Superblock has invalid MMP block. */
+	{ PR_0_MMP_INVALID_BLK,
+	  N_("@S has invalid MMP block.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Superblock has invalid MMP magic. */
+	{ PR_0_MMP_INVALID_MAGIC,
+	  N_("@S has invalid MMP magic.  "),
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK},
+
+	/* Opening file system failed */
+	{ PR_0_OPEN_FAILED,
+	  N_("ext2fs_open2: %m\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Checking group descriptor failed */
+	{ PR_0_CHECK_DESC_FAILED,
+	  N_("ext2fs_check_desc: %m\n"),
+	  PROMPT_NONE, 0 },
 
 	/* Pass 1 errors */
 
@@ -458,12 +506,12 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Illegal blocknumber in inode */
 	{ PR_1_ILLEGAL_BLOCK_NUM,
-	  N_("@I @b #%B (%b) in @i %i.  "),
+	  N_("@I %B (%b) in @i %i.  "),
 	  PROMPT_CLEAR, PR_LATCH_BLOCK },
 
 	/* Block number overlaps fs metadata */
 	{ PR_1_BLOCK_OVERLAPS_METADATA,
-	  N_("@b #%B (%b) overlaps @f metadata in @i %i.  "),
+	  N_("%B (%b) overlaps @f metadata in @i %i.  "),
 	  PROMPT_CLEAR, PR_LATCH_BLOCK },
 
 	/* Inode has illegal blocks (latch question) */
@@ -478,7 +526,7 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Illegal block number in bad block inode */
 	{ PR_1_BB_ILLEGAL_BLOCK_NUM,
-	  N_("@I @b #%B (%b) in bad @b @i.  "),
+	  N_("@I %B (%b) in bad @b @i.  "),
 	  PROMPT_CLEAR, PR_LATCH_BBLOCK },
 
 	/* Bad block inode has illegal blocks (latch question) */
@@ -686,17 +734,17 @@ static struct e2fsck_problem problem_table[] = {
 	/* Error reading Extended Attribute block while fixing refcount */
 	{ PR_1_EXTATTR_READ_ABORT,
 	  N_("Error reading @a @b %b (%m).  "),
-	  PROMPT_ABORT, 0 },
+	  PROMPT_NONE, PR_FATAL },
 
 	/* Extended attribute reference count incorrect */
 	{ PR_1_EXTATTR_REFCOUNT,
-	  N_("@a @b %b has reference count %B, @s %N.  "),
+	  N_("@a @b %b has reference count %r, @s %N.  "),
 	  PROMPT_FIX, 0 },
 
 	/* Error writing Extended Attribute block while fixing refcount */
-	{ PR_1_EXTATTR_WRITE,
+	{ PR_1_EXTATTR_WRITE_ABORT,
 	  N_("Error writing @a @b %b (%m).  "),
-	  PROMPT_ABORT, 0 },
+	  PROMPT_NONE, PR_FATAL },
 
 	/* Multiple EA blocks not supported */
 	{ PR_1_EA_MULTI_BLOCK,
@@ -704,9 +752,9 @@ static struct e2fsck_problem problem_table[] = {
 	  PROMPT_CLEAR, 0},
 
 	/* Error allocating EA region allocation structure */
-	{ PR_1_EA_ALLOC_REGION,
+	{ PR_1_EA_ALLOC_REGION_ABORT,
 	  N_("@A @a @b %b.  "),
-	  PROMPT_ABORT, 0},
+	  PROMPT_NONE, PR_FATAL},
 
 	/* Error EA allocation collision */
 	{ PR_1_EA_ALLOC_COLLISION,
@@ -729,17 +777,17 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Directory too big */
 	{ PR_1_TOOBIG_DIR,
-	  N_("@b #%B (%b) causes @d to be too big.  "),
+	  N_("%B (%b) causes @d to be too big.  "),
 	  PROMPT_CLEAR, PR_LATCH_TOOBIG },
 
 	/* Regular file too big */
 	{ PR_1_TOOBIG_REG,
-	  N_("@b #%B (%b) causes file to be too big.  "),
+	  N_("%B (%b) causes file to be too big.  "),
 	  PROMPT_CLEAR, PR_LATCH_TOOBIG },
 
 	/* Symlink too big */
 	{ PR_1_TOOBIG_SYMLINK,
-	  N_("@b #%B (%b) causes symlink to be too big.  "),
+	  N_("%B (%b) causes symlink to be too big.  "),
 	  PROMPT_CLEAR, PR_LATCH_TOOBIG },
 
 	/* INDEX_FL flag set on a non-HTREE filesystem */
@@ -781,7 +829,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* Resize inode failed */
 	{ PR_1_RESIZE_INODE_CREATE,
 	  N_("Resize @i (re)creation failed: %m."),
-	  PROMPT_ABORT, 0 },
+	  PROMPT_CONTINUE, 0 },
 
 	/* invalid inode->i_extra_isize */
 	{ PR_1_EXTRA_ISIZE,
@@ -793,11 +841,6 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("@a in @i %i has a namelen (%N) which is @n\n"),
 	  PROMPT_CLEAR, PR_PREEN_OK },
 
-	/* invalid ea entry->e_value_size */
-	{ PR_1_ATTR_VALUE_SIZE,
-	  N_("@a in @i %i has a value size (%N) which is @n\n"),
-	  PROMPT_CLEAR, PR_PREEN_OK },
-
 	/* invalid ea entry->e_value_offs */
 	{ PR_1_ATTR_VALUE_OFFSET,
 	  N_("@a in @i %i has a value offset (%N) which is @n\n"),
@@ -806,6 +849,11 @@ static struct e2fsck_problem problem_table[] = {
 	/* invalid ea entry->e_value_block */
 	{ PR_1_ATTR_VALUE_BLOCK,
 	  N_("@a in @i %i has a value @b (%N) which is @n (must be 0)\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* invalid ea entry->e_value_size */
+	{ PR_1_ATTR_VALUE_SIZE,
+	  N_("@a in @i %i has a value size (%N) which is @n\n"),
 	  PROMPT_CLEAR, PR_PREEN_OK },
 
 	/* invalid ea entry->e_hash */
@@ -823,10 +871,11 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Error while reading over @x tree in @i %i: %m\n"),
 	  PROMPT_CLEAR_INODE, 0 },
 
-	/* Error deleting a bogus extent */
-	{ PR_1_EXTENT_DELETE_FAIL,
-	  N_("Error while deleting extent: %m\n"),
-	  PROMPT_ABORT, 0 },
+	/* Failure to iterate extents */
+	{ PR_1_EXTENT_ITERATE_FAILURE,
+	  N_("Failed to iterate extents in @i %i\n"
+	     "\t(op %s, blk %b, lblk %c): %m\n"),
+	  PROMPT_CLEAR_INODE, 0 },
 
 	/* Bad starting block in extent */
 	{ PR_1_EXTENT_BAD_START_BLK,
@@ -861,6 +910,40 @@ static struct e2fsck_problem problem_table[] = {
 	/* Extents are out of order */
 	{ PR_1_OUT_OF_ORDER_EXTENTS,
 	  N_("@i %i has out of order extents\n\t(@n logical @b %c, physical @b %b, len %N)\n"),
+	  PROMPT_CLEAR, 0 },
+
+	{ PR_1_EXTENT_HEADER_INVALID,
+	  N_("@i %i has an invalid extent node (blk %b, lblk %c)\n"),
+	  PROMPT_CLEAR, 0 },
+
+	/* Failed to convert subcluster bitmap */
+	{ PR_1_CONVERT_SUBCLUSTER,
+	  N_("Error converting subcluster @b @B: %m\n"),
+	  PROMPT_NONE, PR_FATAL },
+
+	/* Quota inode has bad mode */
+	{ PR_1_QUOTA_BAD_MODE,
+	  N_("@q @i is not regular file.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Quota inode is not in use, but contains data */
+	{ PR_1_QUOTA_INODE_NOT_CLEAR,
+	  N_("@q @i is not in use, but contains data.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Quota inode is user visible */
+	{ PR_1_QUOTA_INODE_NOT_HIDDEN,
+	  N_("@q @i is visible to the user.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Invalid bad inode */
+	{ PR_1_INVALID_BAD_INODE,
+	  N_("The bad @b @i looks @n.  "),
+	  PROMPT_CLEAR, 0 },
+
+	/* Extent has zero length */
+	{ PR_1_EXTENT_LENGTH_ZERO,
+	  N_("@i %i has zero length extent\n\t(@n logical @b %c, physical @b %b)\n"),
 	  PROMPT_CLEAR, 0 },
 
 	/* Pass 1b errors */
@@ -906,7 +989,6 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Error adjusting refcount for @a @b %b (@i %i): %m\n"),
 	  PROMPT_NONE, 0 },
 
-
 	/* Pass 1C: Scan directories for inodes with multiply-claimed blocks. */
 	{ PR_1C_PASS_HEADER,
 	  N_("Pass 1C: Scanning directories for @is with @m @bs\n"),
@@ -921,7 +1003,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* File has duplicate blocks */
 	{ PR_1D_DUP_FILE,
 	  N_("File %Q (@i #%i, mod time %IM) \n"
-	  "  has %B @m @b(s), shared with %N file(s):\n"),
+	  "  has %r @m @b(s), shared with %N file(s):\n"),
 	  PROMPT_NONE, 0 },
 
 	/* List of files sharing duplicate blocks */
@@ -1028,22 +1110,22 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("i_faddr @F %IF, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
 
-  	/* i_file_acl should be zero */
+	/* i_file_acl should be zero */
 	{ PR_2_FILE_ACL_ZERO,
 	  N_("i_file_acl @F %If, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
 
-  	/* i_dir_acl should be zero */
+	/* i_dir_acl should be zero */
 	{ PR_2_DIR_ACL_ZERO,
 	  N_("i_dir_acl @F %Id, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
 
-  	/* i_frag should be zero */
+	/* i_frag should be zero */
 	{ PR_2_FRAG_ZERO,
 	  N_("i_frag @F %N, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
 
-  	/* i_fsize should be zero */
+	/* i_fsize should be zero */
 	{ PR_2_FSIZE_ZERO,
 	  N_("i_fsize @F %N, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
@@ -1055,17 +1137,17 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* directory corrupted */
 	{ PR_2_DIR_CORRUPTED,
-	  N_("@d @i %i, @b %B, offset %N: @d corrupted\n"),
+	  N_("@d @i %i, %B, offset %N: @d corrupted\n"),
 	  PROMPT_SALVAGE, 0 },
 
 	/* filename too long */
 	{ PR_2_FILENAME_LONG,
-	  N_("@d @i %i, @b %B, offset %N: filename too long\n"),
+	  N_("@d @i %i, %B, offset %N: filename too long\n"),
 	  PROMPT_TRUNCATE, 0 },
 
 	/* Directory inode has a missing block (hole) */
 	{ PR_2_DIRECTORY_HOLE,
-	  N_("@d @i %i has an unallocated @b #%B.  "),
+	  N_("@d @i %i has an unallocated %B.  "),
 	  PROMPT_ALLOCATE, 0 },
 
 	/* '.' is not NULL terminated */
@@ -1178,7 +1260,7 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Symlink %Q (@i #%i) is @n.\n"),
 	  PROMPT_CLEAR, 0 },
 
-  	/* i_file_acl (extended attribute block) is bad */
+	/* i_file_acl (extended attribute block) is bad */
 	{ PR_2_FILE_ACL_BAD,
 	  N_("@a @b @F @n (%If).\n"),
 	  PROMPT_CLEAR, 0 },
@@ -1190,22 +1272,22 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Node in HTREE directory not referenced */
 	{ PR_2_HTREE_NOTREF,
-	  N_("@p @h %d: node (%B) not referenced\n"),
+	  N_("@p @h %d: %B not referenced\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Node in HTREE directory referenced twice */
 	{ PR_2_HTREE_DUPREF,
-	  N_("@p @h %d: node (%B) referenced twice\n"),
+	  N_("@p @h %d: %B referenced twice\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Node in HTREE directory has bad min hash */
 	{ PR_2_HTREE_MIN_HASH,
-	  N_("@p @h %d: node (%B) has bad min hash\n"),
+	  N_("@p @h %d: %B has bad min hash\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Node in HTREE directory has bad max hash */
 	{ PR_2_HTREE_MAX_HASH,
-	  N_("@p @h %d: node (%B) has bad max hash\n"),
+	  N_("@p @h %d: %B has bad max hash\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Clear invalid HTREE directory */
@@ -1229,22 +1311,22 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Invalid HTREE limit */
 	{ PR_2_HTREE_BAD_LIMIT,
-	  N_("@p @h %d: node (%B) has @n limit (%N)\n"),
+	  N_("@p @h %d: %B has @n limit (%N)\n"),
 	  PROMPT_CLEAR_HTREE, PR_PREEN_OK },
 
 	/* Invalid HTREE count */
 	{ PR_2_HTREE_BAD_COUNT,
-	  N_("@p @h %d: node (%B) has @n count (%N)\n"),
+	  N_("@p @h %d: %B has @n count (%N)\n"),
 	  PROMPT_CLEAR_HTREE, PR_PREEN_OK },
 
 	/* HTREE interior node has out-of-order hashes in table */
 	{ PR_2_HTREE_HASH_ORDER,
-	  N_("@p @h %d: node (%B) has an unordered hash table\n"),
+	  N_("@p @h %d: %B has an unordered hash table\n"),
 	  PROMPT_CLEAR_HTREE, PR_PREEN_OK },
 
 	/* Node in HTREE directory has invalid depth */
 	{ PR_2_HTREE_BAD_DEPTH,
-	  N_("@p @h %d: node (%B) has @n depth (%N)\n"),
+	  N_("@p @h %d: %B has @n depth (%N)\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Duplicate directory entry found */
@@ -1262,7 +1344,7 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Duplicate @e '%Dn' found.\n\tMarking %p (%i) to be rebuilt.\n\n"),
 	  PROMPT_NONE, 0 },
 
-  	/* i_blocks_hi should be zero */
+	/* i_blocks_hi should be zero */
 	{ PR_2_BLOCKS_HI_ZERO,
 	  N_("i_blocks_hi @F %N, @s zero.\n"),
 	  PROMPT_CLEAR, 0 },
@@ -1280,6 +1362,11 @@ static struct e2fsck_problem problem_table[] = {
 	{ PR_2_INOREF_IN_UNUSED,
 	  N_("@E references @i %Di found in @g %g's unused inodes area.\n"),
 	  PROMPT_FIX, PR_PREEN_OK },
+
+	/* i_blocks_hi should be zero */
+	{ PR_2_I_FILE_ACL_HI_ZERO,
+	  N_("i_file_acl_hi @F %N, @s zero.\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
 
 	/* Pass 3 errors */
 
@@ -1381,7 +1468,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* Error creating lost and found directory */
 	{ PR_3_CREATE_LPF_ERROR,
 	  N_("Error creating /@l @d (%s): %m\n"),
-	  PROMPT_NONE, PR_FATAL },
+	  PROMPT_NONE, 0 },
 
 	/* Root inode is not directory; aborting */
 	{ PR_3_ROOT_NOT_DIR_ABORT,
@@ -1412,12 +1499,12 @@ static struct e2fsck_problem problem_table[] = {
 
 	/* Error iterating over directories */
 	{ PR_3A_OPTIMIZE_ITER,
-	  N_("Failed to create dirs_to_hash iterator: %m"),
+	  N_("Failed to create dirs_to_hash iterator: %m\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Error rehash directory */
 	{ PR_3A_OPTIMIZE_DIR_ERR,
-	  N_("Failed to optimize directory %q (%d): %m"),
+	  N_("Failed to optimize directory %q (%d): %m\n"),
 	  PROMPT_NONE, 0 },
 
 	/* Rehashing dir header */
@@ -1534,7 +1621,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* Free inodes count wrong */
 	{ PR_5_FREE_INODE_COUNT,
 	  N_("Free @is count wrong (%i, counted=%j).\n"),
-	  PROMPT_FIX, PR_PREEN_OK | PR_PREEN_NOMSG },
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK | PR_PREEN_NOMSG },
 
 	/* Free blocks count for group wrong */
 	{ PR_5_FREE_BLOCK_COUNT_GROUP,
@@ -1544,7 +1631,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* Free blocks count wrong */
 	{ PR_5_FREE_BLOCK_COUNT,
 	  N_("Free @bs count wrong (%b, counted=%c).\n"),
-	  PROMPT_FIX, PR_PREEN_OK | PR_PREEN_NOMSG },
+	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK | PR_PREEN_NOMSG },
 
 	/* Programming error: bitmap endpoints don't match */
 	{ PR_5_BMAP_ENDPOINTS,
@@ -1587,11 +1674,6 @@ static struct e2fsck_problem problem_table[] = {
 	  " +(%i--%j)",
 	  PROMPT_NONE, PR_LATCH_IBITMAP | PR_PREEN_OK | PR_PREEN_NOMSG },
 
-	/* Recreate journal if E2F_FLAG_JOURNAL_INODE flag is set */
-	{ PR_6_RECREATE_JOURNAL,
-	  N_("Recreate journal to make the filesystem ext3 again?\n"),
-	  PROMPT_FIX, PR_PREEN_OK | PR_NO_OK },
-
 	/* Group N block(s) in use but group is marked BLOCK_UNINIT */
 	{ PR_5_BLOCK_UNINIT,
 	  N_("@g %g @b(s) in use but @g is marked BLOCK_UNINIT\n"),
@@ -1601,6 +1683,18 @@ static struct e2fsck_problem problem_table[] = {
 	{ PR_5_INODE_UNINIT,
 	  N_("@g %g @i(s) in use but @g is marked INODE_UNINIT\n"),
 	  PROMPT_FIX, PR_PREEN_OK },
+
+	/* Post-Pass 5 errors */
+
+	/* Recreate journal if E2F_FLAG_JOURNAL_INODE flag is set */
+	{ PR_6_RECREATE_JOURNAL,
+	  N_("Recreate @j"),
+	  PROMPT_NULL, PR_PREEN_OK | PR_NO_OK },
+
+	/* Update quota information if it is inconsistent */
+	{ PR_6_UPDATE_QUOTAS,
+	  N_("Update quota info for quota type %N"),
+	  PROMPT_NULL, PR_PREEN_OK },
 
 	{ 0 }
 };
@@ -1621,12 +1715,13 @@ static struct latch_descr pr_latch_info[] = {
 	{ PR_LATCH_LOW_DTIME, PR_1_ORPHAN_LIST_REFUGEES, 0 },
 	{ PR_LATCH_TOOBIG, PR_1_INODE_TOOBIG, 0 },
 	{ PR_LATCH_OPTIMIZE_DIR, PR_3A_OPTIMIZE_DIR_HEADER, PR_3A_OPTIMIZE_DIR_END },
+	{ PR_LATCH_BG_CHECKSUM, PR_0_GDT_CSUM_LATCH, 0 },
 	{ -1, 0, 0 },
 };
 
 static struct e2fsck_problem *find_problem(problem_t code)
 {
-	int 	i;
+	int	i;
 
 	for (i=0; problem_table[i].e2p_code; i++) {
 		if (problem_table[i].e2p_code == code)
@@ -1694,11 +1789,11 @@ void clear_problem_context(struct problem_context *ctx)
 static void reconfigure_bool(e2fsck_t ctx, struct e2fsck_problem *ptr,
 			     const char *key, int mask, const char *name)
 {
-	int	bool;
+	int	val;
 
-	bool = (ptr->flags & mask);
-	profile_get_boolean(ctx->profile, "problems", key, name, bool, &bool);
-	if (bool)
+	val = (ptr->flags & mask);
+	profile_get_boolean(ctx->profile, "problems", key, name, val, &val);
+	if (val)
 		ptr->flags |= mask;
 	else
 		ptr->flags &= ~mask;
@@ -1711,7 +1806,7 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 	struct e2fsck_problem *ptr;
 	struct latch_descr *ldesc = 0;
 	const char *message;
-	int 		def_yn, answer, ans;
+	int		def_yn, answer, ans;
 	int		print_answer = 0;
 	int		suppress = 0;
 
@@ -1738,10 +1833,17 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 		reconfigure_bool(ctx, ptr, key, PR_NOCOLLATE, "no_collate");
 		reconfigure_bool(ctx, ptr, key, PR_NO_NOMSG, "no_nomsg");
 		reconfigure_bool(ctx, ptr, key, PR_PREEN_NOHDR, "preen_noheader");
+		reconfigure_bool(ctx, ptr, key, PR_FORCE_NO, "force_no");
+		profile_get_integer(ctx->profile, "options",
+				    "max_count_problems", 0, 0,
+				    &ptr->max_count);
+		profile_get_integer(ctx->profile, "problems", key, "max_count",
+				    ptr->max_count, &ptr->max_count);
 
 		ptr->flags |= PR_CONFIG;
 	}
 	def_yn = 1;
+	ptr->count++;
 	if ((ptr->flags & PR_NO_DEFAULT) ||
 	    ((ptr->flags & PR_PREEN_NO) && (ctx->options & E2F_OPT_PREEN)) ||
 	    (ctx->options & E2F_OPT_NO))
@@ -1768,18 +1870,37 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 	    (ctx->options & E2F_OPT_PREEN))
 		suppress++;
 	if ((ptr->flags & PR_NO_NOMSG) &&
-	    (ctx->options & E2F_OPT_NO))
+	    ((ctx->options & E2F_OPT_NO) || (ptr->flags & PR_FORCE_NO)))
 		suppress++;
+	if (ptr->max_count && (ptr->count > ptr->max_count)) {
+		if (ctx->options & (E2F_OPT_NO | E2F_OPT_YES))
+			suppress++;
+		if ((ctx->options & E2F_OPT_PREEN) &&
+		    (ptr->flags & PR_PREEN_OK))
+			suppress++;
+		if ((ptr->flags & PR_LATCH_MASK) &&
+		    (ldesc->flags & (PRL_YES | PRL_NO)))
+			suppress++;
+		if (ptr->count == ptr->max_count + 1) {
+			printf("...problem 0x%06x suppressed\n",
+			       ptr->e2p_code);
+			fflush(stdout);
+		}
+	}
+	message = ptr->e2p_description;
+	if (*message)
+		message = _(message);
 	if (!suppress) {
-		message = ptr->e2p_description;
 		if ((ctx->options & E2F_OPT_PREEN) &&
 		    !(ptr->flags & PR_PREEN_NOHDR)) {
 			printf("%s: ", ctx->device_name ?
 			       ctx->device_name : ctx->filesystem_name);
 		}
 		if (*message)
-			print_e2fsck_message(ctx, _(message), pctx, 1, 0);
+			print_e2fsck_message(stdout, ctx, message, pctx, 1, 0);
 	}
+	if (ctx->logf && message)
+		print_e2fsck_message(ctx->logf, ctx, message, pctx, 1, 0);
 	if (!(ptr->flags & PR_PREEN_OK) && (ptr->prompt != PROMPT_NONE))
 		preenhalt(ctx);
 
@@ -1792,14 +1913,16 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 		else
 			answer = def_yn;
 	} else {
-		if (ctx->options & E2F_OPT_PREEN) {
+		if (ptr->flags & PR_FORCE_NO) {
+			answer = 0;
+			print_answer = 1;
+		} else if (ctx->options & E2F_OPT_PREEN) {
 			answer = def_yn;
 			if (!(ptr->flags & PR_PREEN_NOMSG))
 				print_answer = 1;
 		} else if ((ptr->flags & PR_LATCH_MASK) &&
 			   (ldesc->flags & (PRL_YES | PRL_NO))) {
-			if (!suppress)
-				print_answer = 1;
+			print_answer = 1;
 			if (ldesc->flags & PRL_YES)
 				answer = 1;
 			else
@@ -1810,10 +1933,16 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 		if (!answer && !(ptr->flags & PR_NO_OK))
 			ext2fs_unmark_valid(fs);
 
-		if (print_answer)
-			printf("%s.\n", answer ?
-			       _(preen_msg[(int) ptr->prompt]) : _("IGNORED"));
-
+		if (print_answer) {
+			if (!suppress)
+				printf("%s.\n", answer ?
+				       _(preen_msg[(int) ptr->prompt]) :
+				       _("IGNORED"));
+			if (ctx->logf)
+				fprintf(ctx->logf, "%s.\n", answer ?
+					_(preen_msg[(int) ptr->prompt]) :
+					_("IGNORED"));
+		}
 	}
 
 	if ((ptr->prompt == PROMPT_ABORT) && answer)
@@ -1824,3 +1953,97 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 
 	return answer;
 }
+
+#ifdef UNITTEST
+
+#include <stdlib.h>
+#include <stdio.h>
+
+errcode_t
+profile_get_boolean(profile_t profile, const char *name, const char *subname,
+		    const char *subsubname, int def_val, int *ret_boolean)
+{
+	return 0;
+}
+
+errcode_t
+profile_get_integer(profile_t profile, const char *name, const char *subname,
+		    const char *subsubname, int def_val, int *ret_int)
+{
+	return 0;
+}
+
+void print_e2fsck_message(FILE *f, e2fsck_t ctx, const char *msg,
+			  struct problem_context *pctx, int first,
+			  int recurse)
+{
+	return;
+}
+
+void fatal_error(e2fsck_t ctx, const char *msg)
+{
+	return;
+}
+
+void preenhalt(e2fsck_t ctx)
+{
+	return;
+}
+
+errcode_t
+profile_get_string(profile_t profile, const char *name, const char *subname,
+		   const char *subsubname, const char *def_val,
+		   char **ret_string)
+{
+	return 0;
+}
+
+int ask (e2fsck_t ctx, const char * string, int def)
+{
+	return 0;
+}
+
+int verify_problem_table(e2fsck_t ctx)
+{
+	struct e2fsck_problem *curr, *prev = NULL;
+	int rc = 0;
+
+	for (prev = NULL, curr = problem_table; curr->e2p_code; prev = curr++) {
+		if (prev == NULL)
+			continue;
+
+		if (curr->e2p_code > prev->e2p_code)
+			continue;
+
+		if (curr->e2p_code == prev->e2p_code)
+			fprintf(stderr, "*** Duplicate in problem table:\n");
+		else
+			fprintf(stderr, "*** Unordered problem table:\n");
+
+		fprintf(stderr, "curr code = 0x%08x: %s\n",
+			curr->e2p_code, curr->e2p_description);
+		fprintf(stderr, "*** prev code = 0x%08x: %s\n",
+			prev->e2p_code, prev->e2p_description);
+
+		fprintf(stderr, "*** This is a %sprogramming error in e2fsck\n",
+			(curr->e2p_code == prev->e2p_code) ? "fatal " : "");
+
+		rc = 1;
+	}
+
+	return rc;
+}
+
+int main(int argc, char *argv[])
+{
+	e2fsck_t ctx;
+	int rc;
+
+	memset(&ctx, 0, sizeof(ctx)); /* just to quiet compiler */
+	rc = verify_problem_table(ctx);
+	if (rc == 0)
+		printf("e2fsck problem table verified\n");
+
+	return rc;
+}
+#endif /* UNITTEST */

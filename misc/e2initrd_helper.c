@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <unistd.h>
 #ifdef HAVE_STDLIB_H
@@ -73,7 +74,7 @@ static errcode_t get_file(ext2_filsys fs, const char * filename,
 {
 	errcode_t	retval;
 	char 		*buf;
-	ext2_file_t	e2_file;
+	ext2_file_t	e2_file = NULL;
 	unsigned int	got;
 	struct ext2_inode inode;
 	ext2_ino_t	ino;
@@ -101,7 +102,7 @@ static errcode_t get_file(ext2_filsys fs, const char * filename,
 
 	retval = ext2fs_file_open(fs, ino, 0, &e2_file);
 	if (retval)
-		return retval;
+		goto errout;
 
 	retval = ext2fs_file_read(e2_file, buf, inode.i_size, &got);
 	if (retval)
@@ -109,13 +110,16 @@ static errcode_t get_file(ext2_filsys fs, const char * filename,
 
 	retval = ext2fs_file_close(e2_file);
 	if (retval)
-		return retval;
+		goto errout;
 
 	ret_file->buf = buf;
 	ret_file->size = (int) got;
+	return 0;
 
 errout:
-	ext2fs_file_close(e2_file);
+	free(buf);
+	if (e2_file)
+		ext2fs_file_close(e2_file);
 	return retval;
 }
 
@@ -274,8 +278,7 @@ static int parse_fstab_line(char *line, struct fs_info *fs)
 	fs->flags = 0;
 	fs->next = NULL;
 
-	if (dev)
-		free(dev);
+	free(dev);
 
 	return 0;
 }
@@ -303,6 +306,7 @@ static void PRS(int argc, char **argv)
 	setlocale(LC_CTYPE, "");
 	bindtextdomain(NLS_CAT_NAME, LOCALEDIR);
 	textdomain(NLS_CAT_NAME);
+	set_com_err_gettext(gettext);
 #endif
 
 	while ((c = getopt(argc, argv, "rv")) != EOF) {

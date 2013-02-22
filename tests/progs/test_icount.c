@@ -9,6 +9,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -289,6 +290,8 @@ static int source_file(const char *cmd_file, int sci_idx)
 			exit_status++;
 		}
 	}
+	if (f != stdin)
+		fclose(f);
 	return exit_status;
 }
 
@@ -296,7 +299,6 @@ int main(int argc, char **argv)
 {
 	int		retval;
 	int		sci_idx;
-	const char	*usage = "Usage: test_icount [-R request] [-f cmd_file]";
 	int		c;
 	char		*request = 0;
 	int		exit_status = 0;
@@ -309,7 +311,7 @@ int main(int argc, char **argv)
 	 * Create a sample filesystem structure
 	 */
 	memset(&param, 0, sizeof(struct ext2_super_block));
-	param.s_blocks_count = 80000;
+	ext2fs_blocks_count_set(&param, 80000);
 	param.s_inodes_count = 20000;
 	retval = ext2fs_initialize("/dev/null", 0, &param,
 				   unix_io_manager, &test_fs);
@@ -327,7 +329,8 @@ int main(int argc, char **argv)
 			cmd_file = optarg;
 			break;
 		default:
-			com_err(argv[0], 0, usage);
+			com_err(argv[0], 0, "Usage: test_icount "
+				"[-R request] [-f cmd_file]");
 			exit(1);
 		}
 	}

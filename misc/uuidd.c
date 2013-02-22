@@ -11,6 +11,7 @@
 
 #define _GNU_SOURCE /* for setres[ug]id() */
 
+#include "config.h"
 #include <stdio.h>
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -78,21 +79,44 @@ static void create_daemon(void)
 	open("/dev/null", O_RDWR);
 	open("/dev/null", O_RDWR);
 
-	chdir("/");
+	if (chdir("/")) {}	/* Silence warn_unused_result warning */
 	(void) setsid();
 	euid = geteuid();
 	if (setreuid(euid, euid) < 0)
 		die("setreuid");
 }
 
-static int read_all(int fd, char *buf, size_t count)
+static ssize_t read_all(int fd, char *buf, size_t count)
 {
 	ssize_t ret;
-	int c = 0;
+	ssize_t c = 0;
+	int tries = 0;
 
 	memset(buf, 0, count);
 	while (count > 0) {
 		ret = read(fd, buf, count);
+		if (ret <= 0) {
+			if ((errno == EAGAIN || errno == EINTR || ret == 0) &&
+			    (tries++ < 5))
+				continue;
+			return c ? c : -1;
+		}
+		if (ret > 0)
+			tries = 0;
+		count -= ret;
+		buf += ret;
+		c += ret;
+	}
+	return c;
+}
+
+static int write_all(int fd, char *buf, size_t count)
+{
+	ssize_t ret;
+	int c = 0;
+
+	while (count > 0) {
+		ret = write(fd, buf, count);
 		if (ret < 0) {
 			if ((errno == EAGAIN) || (errno == EINTR))
 				continue;
@@ -161,7 +185,7 @@ static int call_daemon(const char *socket_path, int op, char *buf,
 		op_len += sizeof(int);
 	}
 
-	ret = write(s, op_buf, op_len);
+	ret = write_all(s, op_buf, op_len);
 	if (ret < op_len) {
 		if (err_context)
 			*err_context = _("write");
@@ -257,6 +281,18 @@ static void server_loop(const char *socket_path, const char *pidfile_path,
 	}
 
 	/*
+	 * Make sure the socket isn't using fd numbers 0-2 to avoid it
+	 * getting closed by create_daemon()
+	 */
+	while (!debug && s <= 2) {
+		s = dup(s);
+		if (s < 0) {
+			perror("dup");
+			exit(1);
+		}
+	}
+
+	/*
 	 * Create the address we will be binding to.
 	 */
 	my_addr.sun_family = AF_UNIX;
@@ -291,9 +327,9 @@ static void server_loop(const char *socket_path, const char *pidfile_path,
 	signal(SIGALRM, terminate_intr);
 	signal(SIGPIPE, SIG_IGN);
 
-	sprintf(reply_buf, "%d\n", getpid());
-	ftruncate(fd_pidfile, 0);
-	write(fd_pidfile, reply_buf, strlen(reply_buf));
+	sprintf(reply_buf, "%8d\n", getpid());
+	if (ftruncate(fd_pidfile, 0)) {} /* Silence warn_unused_result */
+	write_all(fd_pidfile, reply_buf, strlen(reply_buf));
 	if (fd_pidfile > 1)
 		close(fd_pidfile); /* Unlock the pid file */
 
@@ -360,8 +396,11 @@ static void server_loop(const char *socket_path, const char *pidfile_path,
 			uuid__generate_time(uu, &num);
 			if (debug) {
 				uuid_unparse(uu, str);
-				printf(_("Generated time UUID %s and %d "
-					 "following\n"), str, num);
+				printf(P_("Generated time UUID %s and "
+					  "subsequent UUID\n",
+					  "Generated time UUID %s and %d "
+					  "subsequent UUIDs\n", num),
+				       str, num);
 			}
 			memcpy(reply_buf, uu, sizeof(uu));
 			reply_len = sizeof(uu);
@@ -393,8 +432,8 @@ static void server_loop(const char *socket_path, const char *pidfile_path,
 				printf(_("Invalid operation %d\n"), op);
 			goto shutdown_socket;
 		}
-		write(ns, &reply_len, sizeof(reply_len));
-		write(ns, reply_buf, reply_len);
+		write_all(ns, (char *) &reply_len, sizeof(reply_len));
+		write_all(ns, reply_buf, reply_len);
 	shutdown_socket:
 		close(ns);
 	}
@@ -437,6 +476,7 @@ int main(int argc, char **argv)
 				fprintf(stderr, _("Bad number: %s\n"), optarg);
 				exit(1);
 			}
+			break;
 		case 'p':
 			pidfile_path = optarg;
 			drop_privs = 1;
@@ -500,7 +540,9 @@ int main(int argc, char **argv)
 
 			uuid_unparse((unsigned char *) buf, str);
 
-			printf(_("%s and subsequent %d UUID's\n"), str, num);
+			printf(P_("%s and subsequent UUID\n",
+				  "%s and subsequent %d UUIDs\n", num),
+			       str, num);
 		} else {
 			printf(_("List of UUID's:\n"));
 			cp = buf + 4;

@@ -10,6 +10,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -97,10 +98,8 @@ char *blkid_get_devname(blkid_cache cache, const char *token,
 	ret = blkid_strdup(blkid_dev_devname(dev));
 
 out:
-	if (t)
-		free(t);
-	if (v)
-		free(v);
+	free(t);
+	free(v);
 	if (!cache) {
 		blkid_put_cache(c);
 	}

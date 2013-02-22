@@ -13,6 +13,7 @@
 
 #define _GNU_SOURCE 1
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
@@ -65,6 +66,8 @@ blkid_dev blkid_get_dev(blkid_cache cache, const char *devname, int flags)
 	}
 
 	if (!dev && (flags & BLKID_DEV_CREATE)) {
+		if (access(devname, F_OK) < 0)
+			return NULL;
 		dev = blkid_new_dev();
 		if (!dev)
 			return NULL;
@@ -151,6 +154,30 @@ static int is_dm_leaf(const char *devname)
 }
 
 /*
+ * Since 2.6.29 (patch 784aae735d9b0bba3f8b9faef4c8b30df3bf0128) kernel sysfs
+ * provides the real DM device names in /sys/block/<ptname>/dm/name
+ */
+static char *get_dm_name(const char *ptname)
+{
+	FILE	*f;
+	size_t	sz;
+	char	path[256], name[256], *res = NULL;
+
+	snprintf(path, sizeof(path), "/sys/block/%s/dm/name", ptname);
+	if ((f = fopen(path, "r")) == NULL)
+		return NULL;
+
+	/* read "<name>\n" from sysfs */
+	if (fgets(name, sizeof(name), f) && (sz = strlen(name)) > 1) {
+		name[sz - 1] = '\0';
+		snprintf(path, sizeof(path), "/dev/mapper/%s", name);
+		res = blkid_strdup(path);
+	}
+	fclose(f);
+	return res;
+}
+
+/*
  * Probe a single block device to add to the device cache.
  */
 static void probe_one(blkid_cache cache, const char *ptname,
@@ -177,6 +204,17 @@ static void probe_one(blkid_cache cache, const char *ptname,
 	if (dev && dev->bid_devno == devno)
 		goto set_pri;
 
+	/* Try to translate private device-mapper dm-<N> names
+	 * to standard /dev/mapper/<name>.
+	 */
+	if (!strncmp(ptname, "dm-", 3) && isdigit(ptname[3])) {
+		devname = get_dm_name(ptname);
+		if (!devname)
+			blkid__scan_dir("/dev/mapper", devno, 0, &devname);
+		if (devname)
+			goto get_dev;
+	}
+
 	/*
 	 * Take a quick look at /dev/ptname for the device number.  We check
 	 * all of the likely device directories.  If we don't find it, or if
@@ -195,10 +233,12 @@ static void probe_one(blkid_cache cache, const char *ptname,
 		if (stat(device, &st) == 0 && S_ISBLK(st.st_mode) &&
 		    st.st_rdev == devno) {
 			devname = blkid_strdup(device);
-			break;
+			goto get_dev;
 		}
 	}
 	/* Do a short-cut scan of /dev/mapper first */
+	if (!devname)
+		devname = get_dm_name(ptname);
 	if (!devname)
 		blkid__scan_dir("/dev/mapper", devno, 0, &devname);
 	if (!devname) {
@@ -206,9 +246,9 @@ static void probe_one(blkid_cache cache, const char *ptname,
 		if (!devname)
 			return;
 	}
+get_dev:
 	dev = blkid_get_dev(cache, devname, BLKID_DEV_NORMAL);
 	free(devname);
-
 set_pri:
 	if (dev) {
 		if (pri)
@@ -363,6 +403,7 @@ static int probe_all(blkid_cache cache, int only_if_new)
 	unsigned long long sz;
 	int lens[2] = { 0, 0 };
 	int which = 0, last = 0;
+	struct list_head *p, *pnext;
 
 	ptnames[0] = ptname0;
 	ptnames[1] = ptname1;
@@ -422,6 +463,29 @@ static int probe_all(blkid_cache cache, int only_if_new)
 			lens[which] = 0;	/* mark as checked */
 		}
 
+		/*
+		 * If last was a whole disk and we just found a partition
+		 * on it, remove the whole-disk dev from the cache if
+		 * it exists.
+		 */
+		if (lens[last] && !strncmp(ptnames[last], ptname, lens[last])) {
+			list_for_each_safe(p, pnext, &cache->bic_devs) {
+				blkid_dev tmp;
+
+				/* find blkid dev for the whole-disk devno */
+				tmp = list_entry(p, struct blkid_struct_dev,
+						 bid_devs);
+				if (tmp->bid_devno == devs[last]) {
+					DBG(DEBUG_DEVNAME,
+						printf("freeing %s\n",
+						       tmp->bid_name));
+					blkid_free_dev(tmp);
+					cache->bic_flags |= BLKID_BIC_FL_CHANGED;
+					break;
+				}
+			}
+			lens[last] = 0;
+		}
 		/*
 		 * If last was not checked because it looked like a whole-disk
 		 * dev, and the device's base name has changed,

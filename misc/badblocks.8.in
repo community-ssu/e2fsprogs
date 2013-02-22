@@ -5,7 +5,7 @@ badblocks \- search a device for bad blocks
 .SH SYNOPSIS
 .B badblocks
 [
-.B \-svwnf
+.B \-svwnfBX
 ]
 [
 .B \-b
@@ -131,6 +131,12 @@ option of
 can be used to retrieve the list of blocks currently marked bad on
 an existing filesystem, in a format suitable for use with this option.
 .TP
+.B \-n
+Use non-destructive read-write mode.  By default only a non-destructive 
+read-only test is done.  This option must not be combined with the 
+.B \-w
+option, as they are mutually exclusive.
+.TP
 .BI \-o " output_file"
 Write the list of bad blocks to the specified file.  Without this option,
 .B badblocks
@@ -150,6 +156,15 @@ Default is 0, meaning
 .B badblocks
 will exit after the first pass.
 .TP
+.B \-s
+Show the progress of the scan by writing out rough percentage completion
+of the current badblocks pass over the disk.  Note that badblocks may do
+multiple test passes over the disk, in particular if the
+.B \-p
+or
+.B \-w
+option is requested by the user.
+.TP
 .BI \-t " test_pattern"
 Specify a test pattern to be read (and written) to disk blocks.   The
 .I test_pattern
@@ -168,18 +183,9 @@ If multiple patterns
 are specified then all blocks will be tested with one pattern 
 before proceeding to the next pattern.
 .TP
-.B \-n
-Use non-destructive read-write mode.  By default only a non-destructive 
-read-only test is done.  This option must not be combined with the 
-.B \-w
-option, as they are mutually exclusive.
-.TP
-.B \-s
-Show the progress of the scan by writing out the block numbers as they
-are checked.
-.TP
 .B \-v
-Verbose mode.
+Verbose mode.  Will write the number of read errors, write errors and data-
+corruptions to stderr.
 .TP
 .B \-w
 Use write-mode test. With this option,
@@ -189,6 +195,9 @@ every block of the device, reading every block and comparing the contents.
 This option may not be combined with the 
 .B \-n 
 option, as they are mutually exclusive.
+.TP
+.B \-B
+Use buffered I/O and do not use Direct I/O, even if it is available.
 .TP
 .B \-X
 Internal flag only to be used by

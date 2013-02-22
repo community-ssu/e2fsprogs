@@ -10,6 +10,7 @@
  * %End-Header%
  */
 
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -153,8 +154,7 @@ int blkid_flush_cache(blkid_cache cache)
 	}
 
 errout:
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	return ret;
 }
 

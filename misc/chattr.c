@@ -20,6 +20,7 @@
 
 #define _LARGEFILE64_SOURCE
 
+#include "config.h"
 #include <sys/types.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -82,7 +83,7 @@ static unsigned long sf;
 static void usage(void)
 {
 	fprintf(stderr,
-		_("Usage: %s [-RVf] [-+=AacDdijsSu] [-v version] files...\n"),
+		_("Usage: %s [-RVf] [-+=AaCcDdeijsSu] [-v version] files...\n"),
 		program_name);
 	exit(1);
 }
@@ -99,12 +100,14 @@ static const struct flags_char flags_array[] = {
 	{ EXT2_APPEND_FL, 'a' },
 	{ EXT2_COMPR_FL, 'c' },
 	{ EXT2_NODUMP_FL, 'd' },
+	{ EXT4_EXTENTS_FL, 'e'},
 	{ EXT2_IMMUTABLE_FL, 'i' },
 	{ EXT3_JOURNAL_DATA_FL, 'j' },
 	{ EXT2_SECRM_FL, 's' },
 	{ EXT2_UNRM_FL, 'u' },
 	{ EXT2_NOTAIL_FL, 't' },
 	{ EXT2_TOPDIR_FL, 'T' },
+	{ FS_NOCOW_FL, 'C' },
 	{ 0, 0 }
 };
 
@@ -191,6 +194,7 @@ static int change_attributes(const char * name)
 {
 	unsigned long flags;
 	STRUCT_STAT	st;
+	int extent_file = 0;
 
 	if (LSTAT (name, &st) == -1) {
 		if (!silent)
@@ -199,7 +203,22 @@ static int change_attributes(const char * name)
 		return -1;
 	}
 
+	if (fgetflags(name, &flags) == -1) {
+		if (!silent)
+			com_err(program_name, errno,
+					_("while reading flags on %s"), name);
+		return -1;
+	}
+	if (flags & EXT4_EXTENTS_FL)
+		extent_file = 1;
 	if (set) {
+		if (extent_file && !(sf & EXT4_EXTENTS_FL)) {
+			if (!silent)
+				com_err(program_name, 0,
+				_("Clearing extent flag not supported on %s"),
+					name);
+			return -1;
+		}
 		if (verbose) {
 			printf (_("Flags of %s set as "), name);
 			print_flags (stdout, sf, 0);
@@ -208,30 +227,31 @@ static int change_attributes(const char * name)
 		if (fsetflags (name, sf) == -1)
 			perror (name);
 	} else {
-		if (fgetflags (name, &flags) == -1) {
+		if (rem)
+			flags &= ~rf;
+		if (add)
+			flags |= af;
+		if (extent_file && !(flags & EXT4_EXTENTS_FL)) {
 			if (!silent)
-				com_err (program_name, errno,
-					 _("while reading flags on %s"), name);
+				com_err(program_name, 0,
+				_("Clearing extent flag not supported on %s"),
+					name);
 			return -1;
-		} else {
-			if (rem)
-				flags &= ~rf;
-			if (add)
-				flags |= af;
-			if (verbose) {
-				printf (_("Flags of %s set as "), name);
-				print_flags (stdout, flags, 0);
-				printf ("\n");
-			}
-			if (!S_ISDIR(st.st_mode))
-				flags &= ~EXT2_DIRSYNC_FL;
-			if (fsetflags (name, flags) == -1) {
-				if (!silent)
-					com_err(program_name, errno,
+		}
+		if (verbose) {
+			printf(_("Flags of %s set as "), name);
+			print_flags(stdout, flags, 0);
+			printf("\n");
+		}
+		if (!S_ISDIR(st.st_mode))
+			flags &= ~EXT2_DIRSYNC_FL;
+		if (fsetflags(name, flags) == -1) {
+			if (!silent) {
+				com_err(program_name, errno,
 						_("while setting flags on %s"),
 						name);
-				return -1;
 			}
+			return -1;
 		}
 	}
 	if (set_version) {
@@ -282,6 +302,7 @@ int main (int argc, char ** argv)
 	setlocale(LC_CTYPE, "");
 	bindtextdomain(NLS_CAT_NAME, LOCALEDIR);
 	textdomain(NLS_CAT_NAME);
+	set_com_err_gettext(gettext);
 #endif
 	if (argc && *argv)
 		program_name = *argv;

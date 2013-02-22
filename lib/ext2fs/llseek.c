@@ -4,14 +4,15 @@
  * Copyright (C) 1994, 1995, 1996, 1997 Theodore Ts'o.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
 #define _LARGEFILE_SOURCE
 #define _LARGEFILE64_SOURCE
 
+#include "config.h"
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
