@@ -9,7 +9,7 @@ Source: e2fsprogs
 Section: admin
 Priority: required
 Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
-Build-Depends: texi2html (>= 1.76), gettext, texinfo, dc, pkg-config, DIETLIBC_DEFINES gcc-multilib [mips mipsel], debhelper (>= 7.0), UTIL_LINUX_NG_DEFINES m4
+Build-Depends: texi2html (>= 1.76), gettext, texinfo, dc, pkg-config, DIETLIBC_DEFINES gcc-multilib [mips mipsel], debhelper (>= 5.0), UTIL_LINUX_NG_DEFINES m4
 Standards-Version: 3.9.3
 Homepage: http://e2fsprogs.sourceforge.net
 
@@ -87,7 +87,6 @@ Depends: passwd, ${shlibs:Depends}, ${misc:Depends}
 Recommends: uuid-runtime
 Replaces: e2fsprogs (<< 1.34-1)
 Architecture: any
-MULTIARCH_HEADERS
 Description: Universally Unique ID library
  The libuuid library generates and parses 128-bit universally unique
  ids (UUIDs).  A UUID is an identifier that is unique across both
@@ -240,7 +239,6 @@ ifdef(`UTIL_LINUX_NG',
 '',
 ``Pre-Depends: ${shlibs:Depends}, ${misc:Depends}
 '')dnl
-Multi-Arch: foreign
 Suggests: gpart, parted, e2fsck-static
 Conflicts: dump (<< 0.4b4-4), quota (<< 1.55-8.1), initscripts (<< 2.85-4), sysvinit (<< 2.85-4)
 Replaces: hurd (<= 20040301-1), libblkid1 (<< 1.38+1.39-WIP-2005.12.10-2), libuuid1 (<< 1.38+1.39-WIP-2005.12.10-2)
