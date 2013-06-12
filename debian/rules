@@ -19,6 +19,8 @@ ifeq ($(SYS_BLKID_VER),2)
 UTIL_LINUX_NG ?= yes
 endif
 
+SKIP_DIETLIBC := yes
+
 # These are used for cross-compiling and for saving the configure script
 # from having to guess our platform (since we know it already)
 DEB_HOST_ARCH		?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
@@ -531,9 +533,9 @@ endif
 
 	dh_fixperms
 ifneq ($(ismips),)
-	dh_strip -k -Xlib64ext2fs-nopic.a
+	debian/dh_strip.ubuntu -k -Xlib64ext2fs-nopic.a
 else
-	dh_strip -k
+	debian/dh_strip.ubuntu -k
 endif
 
 	# debug package stuff
