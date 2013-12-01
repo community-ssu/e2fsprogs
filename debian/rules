@@ -376,7 +376,7 @@ install: cleanup install-std
 cleanup:
 	dh_testdir
 	dh_testroot
-	dh_prep
+	dh_clean -k
 
 install-std: DH_OPTIONS=
 install-std: build
