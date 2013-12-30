@@ -8,7 +8,7 @@ Homepage: http://e2fsprogs.sourceforge.net
 
 Package: e2fsck-static
 Priority: optional
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Recommends: sash | bash-static | zsh-static | busybox-static | zsh30-static
 Architecture: any
 Description: statically-linked version of the ext2/ext3/ext4 filesystem checker
@@ -24,7 +24,7 @@ Description: statically-linked version of the ext2/ext3/ext4 filesystem checker
 Package: libcomerr2
 Section: libs
 Provides: libcomerr-kth-compat
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Replaces: e2fsprogs (<< 1.34-1)
 Architecture: any
 Description: common error description library
@@ -48,14 +48,14 @@ Description: common error description library - headers and static libraries
 
 Package: libss2
 Section: libs
-Depends: libcomerr2, ${shlibs:Depends}, ${misc:Depends}
+Depends: libcomerr2, ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Replaces: e2fsprogs (<< 1.34-1)
 Architecture: any
 Description: command-line interface parsing library
  libss provides a simple command-line interface parser which will
  accept input from the user, parse the command into an argv argument
  vector, and then dispatch it to a handler function.
- . 
+ .
  It was originally inspired by the Multics SubSystem library.
 
 Package: ss-dev
@@ -67,14 +67,14 @@ Description: command-line interface parsing library - headers and static librari
  This package includes a tool that parses a command table to generate
  a simple command-line interface parser, the include files needed to
  compile and use it, and the static libs.
- . 
+ .
  It was originally inspired by the Multics SubSystem library.
  .
  This package contains the development environment for the ss library.
 
 Package: libuuid1
 Section: libs
-Depends: passwd, ${shlibs:Depends}, ${misc:Depends}
+Depends: passwd, ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Recommends: uuid-runtime
 Replaces: e2fsprogs (<< 1.34-1)
 Architecture: any
@@ -86,12 +86,12 @@ Description: Universally Unique ID library
  short lifetime, to reliably identifying very persistent objects
  across a network.
  .
- See RFC 4122 for more information.  
+ See RFC 4122 for more information.
 
 Package: uuid-runtime
 Section: libs
 Priority: optional
-Depends: passwd, libuuid1 (>> 1.40.3-1), ${shlibs:Depends}, ${misc:Depends}
+Depends: passwd, libuuid1 (>> 1.40.3-1), ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Replaces: e2fsprogs (<= 1.40.3-1ubuntu1)
 Architecture: any
 Description: runtime components for the Universally Unique ID library
@@ -102,7 +102,7 @@ Description: runtime components for the Universally Unique ID library
  short lifetime, to reliably identifying very persistent objects
  across a network.
  .
- See RFC 4122 for more information.  
+ See RFC 4122 for more information.
  .
  This package contains the uuidgen program and the uuidd daemon.
  .
@@ -138,26 +138,26 @@ Description: universally unique id library - headers and static libraries
 
 Package: libblkid1
 Section: libs
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Architecture: any
 Description: block device id library
- The blkid library which allows system programs like fsck and 
- mount to quickly and easily find block devices by filesystem UUID and 
- LABEL.  This allows system administrators to avoid specifying 
- filesystems by hard-coded device names, but via a logical naming 
+ The blkid library which allows system programs like fsck and
+ mount to quickly and easily find block devices by filesystem UUID and
+ LABEL.  This allows system administrators to avoid specifying
+ filesystems by hard-coded device names, but via a logical naming
  system instead.
 
 Package: libblkid1-udeb
 XC-Package-Type: udeb
 Section: debian-installer
 Priority: optional
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Architecture: any
 Description: stripped down block device id library, for debian-installer
- The blkid library which allows system programs like fsck and 
- mount to quickly and easily find block devices by filesystem UUID and 
- LABEL.  This allows system administrators to avoid specifiying 
- filesystems by hard-coded device names, but via a logical naming 
+ The blkid library which allows system programs like fsck and
+ mount to quickly and easily find block devices by filesystem UUID and
+ LABEL.  This allows system administrators to avoid specifiying
+ filesystems by hard-coded device names, but via a logical naming
  system instead.
  .
  This is a minimal package for debian-installer.
@@ -168,10 +168,10 @@ Priority: extra
 Depends: libc6-dev | libc-dev, libblkid1 (= ${binary:Version}), ${misc:Depends}
 Architecture: any
 Description: block device id library - headers and static libraries
- The blkid library which allows system programs like fsck and 
- mount to quickly and easily find block devices by filesystem UUID and 
- LABEL.  This allows system administrators to avoid specifiying 
- filesystems by hard-coded device names, but via a logical naming 
+ The blkid library which allows system programs like fsck and
+ mount to quickly and easily find block devices by filesystem UUID and
+ LABEL.  This allows system administrators to avoid specifiying
+ filesystems by hard-coded device names, but via a logical naming
  system instead.
  .
  This package contains the development environment for the blkid library.
@@ -180,7 +180,7 @@ Package: e2fsprogs-udeb
 XC-Package-Type: udeb
 Section: debian-installer
 Priority: optional
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Architecture: any
 Description: stripped-down versions of e2fsprogs, for debian-installer
  This package is an e2fsprogs package built for a reduced size, so that
@@ -191,7 +191,7 @@ Description: stripped-down versions of e2fsprogs, for debian-installer
 
 Package: e2fslibs
 Section: libs
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Replaces: e2fsprogs (<< 1.34-1)
 Provides: libext2fs2, libe2p2
 Architecture: any
@@ -218,12 +218,12 @@ Description: ext2/ext3/ext4 file system libraries - headers and static libraries
  ("extended") file system. They are the main file system types used for
  hard disks on Debian and other Linux systems.
  .
- This package contains the development environment for the ext2fs and e2p 
+ This package contains the development environment for the ext2fs and e2p
  libraries.
 
 Package: e2fsprogs
 Essential: yes
-Pre-Depends: ${shlibs:Depends}, ${misc:Depends}
+Pre-Depends: ${shlibs:Depends}, ${misc:Depends}, kernel-feature-errata-430973-workaround[armel]
 Suggests: gpart, parted, e2fsck-static
 Conflicts: dump (<< 0.4b4-4), quota (<< 1.55-8.1), initscripts (<< 2.85-4), sysvinit (<< 2.85-4)
 Replaces: hurd (<= 20040301-1), libblkid1 (<< 1.38+1.39-WIP-2005.12.10-2), libuuid1 (<< 1.38+1.39-WIP-2005.12.10-2)
@@ -245,7 +245,7 @@ Description: debugging information for e2fsprogs
  This package includes the debug information useful for debugging e2fsprogs
  and its libraries, contained in the e2fsprogs and e2fsck-static packages.
  The debug information is used for execution tracing and core
- dump analysis. 
+ dump analysis.
 
 Package: uuid-runtime-dbg
 Section: debug

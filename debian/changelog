@@ -1,3 +1,9 @@
+e2fsprogs (1.42.5-1.1maemo1+thumb0) unstable; urgency=low
+
+  * Thumb2 compile
+
+ -- Ivaylo Dimitrov <freemangordon@abv.bg>  Sun, 29 Dec 2013 23:59:33 +0200
+
 e2fsprogs (1.42.5-1.1maemo1) unstable; urgency=low
 
   * Version modified for Maemo 5
